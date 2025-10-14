@@ -1,4 +1,4 @@
-import { cloneState, makeMove } from '../chess/rules.js';
+﻿import { cloneState, makeMove } from '../chess/rules.js';
 
 const UNICODE = {
   K: '\u2654',
@@ -15,9 +15,7 @@ const UNICODE = {
   p: '\u265F',
 };
 
-function cloneBoard(board) {
-  return board.map((row) => row.slice());
-}
+const cloneBoard = (board) => board.map((row) => row.slice());
 
 function renderMatrix(rootEl, matrix) {
   rootEl.innerHTML = '';
@@ -38,140 +36,73 @@ function renderMatrix(rootEl, matrix) {
   }
 }
 
-export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 450, holdMs = 350, maxQueue = 12 } = {}) {
+export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 320 } = {}) {
   let frames = [];
-  let currentIndex = 0;
+  let currentFrame = 0;
   let timer = null;
-  let queue = [];
-  let activeMeta = null;
-  let advancing = false;
-  let finishTimer = null;
 
-  function clearFinishTimer() {
-    if (finishTimer) {
-      clearTimeout(finishTimer);
-      finishTimer = null;
-    }
-  }
+  const setInfo = (text) => {
+    if (infoEl) infoEl.textContent = text;
+  };
 
-  function stopAnimation() {
+  const stop = () => {
     if (timer) {
       clearInterval(timer);
       timer = null;
     }
-    clearFinishTimer();
-  }
+  };
 
-  function setInfo(text) {
-    if (infoEl) infoEl.textContent = text;
-  }
+  const showCurrentFrame = () => {
+    if (!frames.length) return;
+    renderMatrix(rootEl, frames[currentFrame]);
+  };
 
-  function showFrames() {
-    if (frames.length === 0) return;
-    const matrix = frames[currentIndex];
-    renderMatrix(rootEl, matrix);
-  }
-
-  function finishSequence() {
-    stopAnimation();
-    advancing = false;
-    if (queue.length > 0) {
-      const next = queue.shift();
-      loadSequence(next);
-    }
-  }
-
-  function playOnce() {
-    stopAnimation();
-    if (frames.length <= 1) {
-      showFrames();
-      finishTimer = setTimeout(finishSequence, holdMs);
+  const playSequence = (sequence, meta = {}) => {
+    stop();
+    frames = sequence;
+    currentFrame = 0;
+    if (meta.infoText) setInfo(meta.infoText);
+    if (frames.length === 0) {
+      rootEl.innerHTML = '';
       return;
     }
-    timer = setInterval(() => {
-      currentIndex += 1;
-      if (currentIndex >= frames.length) {
-        stopAnimation();
-        finishTimer = setTimeout(finishSequence, holdMs);
-        return;
-      }
-      showFrames();
-    }, frameDelay);
-  }
+    showCurrentFrame();
+    if (frames.length > 1) {
+      timer = setInterval(() => {
+        currentFrame += 1;
+        if (currentFrame >= frames.length) {
+          stop();
+        } else {
+          showCurrentFrame();
+        }
+      }, frameDelay);
+    }
+  };
 
-  function loadSequence(entry) {
-    const { baseState, line, meta = {} } = entry;
-    stopAnimation();
-    advancing = true;
-    const baseClone = cloneState(baseState);
-    const lineState = cloneState(baseState);
-    const sequence = [cloneBoard(baseClone.board)];
+  const showLine = (baseState, line, meta = {}) => {
+    const playbackState = cloneState(baseState);
+    const sequence = [cloneBoard(playbackState.board)];
     for (const move of line) {
-      makeMove(lineState, move, { skipResult: true });
-      sequence.push(cloneBoard(lineState.board));
+      makeMove(playbackState, move, { skipResult: true });
+      sequence.push(cloneBoard(playbackState.board));
     }
-    frames = sequence;
-    currentIndex = 0;
-    activeMeta = meta;
-    if (meta.infoText) setInfo(meta.infoText);
-    showFrames();
-    playOnce();
-  }
+    playSequence(sequence, meta);
+  };
 
-  function queueLine(baseState, line, meta = {}) {
-    if (maxQueue && queue.length >= maxQueue) {
-      queue.shift();
-    }
-    queue.push({ baseState, line, meta });
-    if (!advancing) {
-      loadSequence(queue.shift());
-    }
-  }
+  const showPosition = (state, meta = {}) => {
+    playSequence(state ? [cloneBoard(state.board)] : [], meta);
+  };
 
-  function showLine(baseState, line, meta = {}) {
-    queue = [];
-    stopAnimation();
-    const baseClone = cloneState(baseState);
-    const sequence = [cloneBoard(baseClone.board)];
-    const lineState = cloneState(baseState);
-    for (const move of line) {
-      makeMove(lineState, move, { skipResult: true });
-      sequence.push(cloneBoard(lineState.board));
-    }
-    frames = sequence;
-    currentIndex = 0;
-    activeMeta = meta;
-    if (meta.infoText) setInfo(meta.infoText);
-    showFrames();
-    playOnce();
-  }
-
-  function showPosition(state, meta = {}) {
-    stopAnimation();
-    queue = [];
-    advancing = false;
-    frames = [cloneBoard(state.board)];
-    currentIndex = 0;
-    if (meta.infoText) setInfo(meta.infoText);
-    showFrames();
-  }
-
-  function clear(meta = {}) {
-    stopAnimation();
-    queue = [];
-    advancing = false;
-    frames = [];
-    currentIndex = 0;
-    rootEl.innerHTML = '';
-    if (meta.infoText) setInfo(meta.infoText);
-  }
+  const clear = (meta = {}) => {
+    playSequence([], meta);
+  };
 
   return {
+    queueLine: showLine,
     showLine,
     showPosition,
-    setInfo,
     clear,
-    queueLine,
-    stop: stopAnimation,
+    setInfo,
+    stop,
   };
 }

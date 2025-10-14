@@ -29,7 +29,7 @@ function init() {
   let bot;
   let playerSide = 'w';
   let botThinking = false;
-  const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 400, holdMs: 260, maxQueue: 10 });
+  const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 320 });
 
   const setStatus = (text) => {
     statusEl.textContent = text;
@@ -55,17 +55,19 @@ function init() {
     botThinking = true;
     setStatus('Bot thinking...');
     const baseState = cloneState(game.state);
-    analysisDisplay.clear({ infoText: 'Exploring moves...' });
+    analysisDisplay.showPosition(baseState, { infoText: 'Exploring moves...' });
     let guessCount = 0;
 
     try {
       const sideMs = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
       const timeBudget = Math.max(300, Math.min(BOT_MOVE_TIME_MS, sideMs || BOT_MOVE_TIME_MS));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
       const move = await bot.chooseMove(game, BOT_DEPTH, timeBudget, (payload) => {
         if (!payload) return;
-        const { line = [], depth, score } = payload;
+        const { line = [], depth, score, currentMove } = payload;
         guessCount += 1;
-        const infoText = `Guess #${guessCount} depth ${depth} eval ${formatEval(score, bot.side)}`;
+        const moveLabel = currentMove ? `(${currentMove})` : '';
+        const infoText = `Guess #${guessCount} depth ${depth} ${moveLabel} eval ${formatEval(score, bot.side)}`;
         analysisDisplay.queueLine(baseState, line, { infoText });
       });
 
@@ -161,3 +163,5 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+

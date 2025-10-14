@@ -36,7 +36,7 @@ function setPiece(board, r, c, p) { board[r][c] = p; }
 function isWhite(p) { return p && p === p.toUpperCase(); }
 function isBlack(p) { return p && p === p.toLowerCase(); }
 function algebraToRC(str) { const file = str.charCodeAt(0) - 97; const rank = 8 - parseInt(str[1],10); return { r: rank, c: file }; }
-function rcToAlgebra({r,c}) { return String.fromCharCode(97 + c) + (8 - r); }
+export function rcToAlgebra({r,c}) { return String.fromCharCode(97 + c) + (8 - r); }
 
 const DIRS = {
   N: [ [-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1] ],

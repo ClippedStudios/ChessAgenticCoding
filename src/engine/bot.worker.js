@@ -1,4 +1,4 @@
-import { generateLegalMoves, makeMove, cloneState, inCheck } from '../chess/rules.js';
+import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra } from '../chess/rules.js';
 
 const PIECE_VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 };
 
@@ -37,6 +37,14 @@ function orderMoves(moves) {
     const bv = (b.capture ? 1000 : 0) + (b.promotion ? 500 : 0);
     return bv - av;
   });
+}
+
+function moveToNotation(move) {
+  if (!move) return '';
+  const from = rcToAlgebra(move.from);
+  const to = rcToAlgebra(move.to);
+  const promo = move.promotion ? `=${move.promotion}` : '';
+  return `${from}${to}${promo}`;
 }
 
 function minimax(state, depth, alpha, beta, botSide, start, timeLimitMs) {
@@ -121,6 +129,8 @@ self.addEventListener('message', (event) => {
       type: 'pv',
       depth: currentDepth,
       line: result.line && result.line.length ? result.line : (result.move ? [result.move] : []),
+      currentMove: moveToNotation(result.line && result.line.length ? result.line[0] : result.move),
+      lineNotation: (result.line || []).map(moveToNotation),
       score: result.score,
       elapsed: performance.now() - start,
     });
@@ -133,6 +143,8 @@ self.addEventListener('message', (event) => {
     type: 'result',
     move: bestMove,
     line: bestLine,
+    moveNotation: moveToNotation(bestMove),
+    lineNotation: bestLine.map(moveToNotation),
     score: bestScoreValue ?? 0,
     elapsed: performance.now() - start,
   });
