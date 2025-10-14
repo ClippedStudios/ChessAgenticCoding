@@ -76,7 +76,7 @@ export function generateLegalMoves(state) {
   const legal = [];
   for (const m of moves) {
     const s2 = cloneState(state);
-    makeMove(s2, m);
+    makeMove(s2, m, { skipResult: true });
     if (!inCheck(s2, state.turn)) legal.push(m);
   }
   // Add SAN strings lazily in toSAN
@@ -177,7 +177,8 @@ function genKing(state, r, c, side, out) {
   }
 }
 
-export function makeMove(state, move) {
+export function makeMove(state, move, options = {}) {
+  const { skipResult = false } = options;
   const { board } = state; const from=move.from, to=move.to; const p = pieceAt(board, from.r, from.c);
   // halfmove clock
   if (p.toUpperCase()==='P' || move.capture || move.enPassant) state.halfmove = 0; else state.halfmove++;
@@ -213,10 +214,12 @@ export function makeMove(state, move) {
   if (state.turn==='w') state.fullmove++;
 
   // Checkmate/stalemate detection
-  const legal = generateLegalMoves(state);
-  if (legal.length === 0) {
-    if (inCheck(state, state.turn)) state.result = { outcome: 'checkmate', message: (state.turn==='w'?'White':'Black') + ' is checkmated' };
-    else state.result = { outcome: 'stalemate', message: 'Stalemate' };
+  if (!skipResult) {
+    const legal = generateLegalMoves(state);
+    if (legal.length === 0) {
+      if (inCheck(state, state.turn)) state.result = { outcome: 'checkmate', message: (state.turn==='w'?'White':'Black') + ' is checkmated' };
+      else state.result = { outcome: 'stalemate', message: 'Stalemate' };
+    }
   }
 }
 
@@ -228,7 +231,7 @@ export function toSAN(prevState, move) {
   const dest = rcToAlgebra(move.to);
   const promo = move.promotion ? '=' + move.promotion : '';
   // Check indicator
-  const tmp = cloneState(prevState); makeMove(tmp, JSON.parse(JSON.stringify(move)));
+  const tmp = cloneState(prevState); makeMove(tmp, JSON.parse(JSON.stringify(move)), { skipResult: true });
   const legalAfter = generateLegalMoves(tmp);
   const isCheck = inCheck(tmp, tmp.turn);
   let suffix = '';

@@ -31,7 +31,7 @@ function minimax(state, depth, alpha, beta, side) {
   if (moves.length === 0) return { score: evaluate(state, side) };
   let best = null;
   for (const m of moves) {
-    const s2 = cloneState(state); makeMove(s2, m);
+    const s2 = cloneState(state); makeMove(s2, m, { skipResult: true });
     const val = minimax(s2, depth - 1, alpha, beta, side).score;
     if (state.turn === side) {
       if (best === null || val > best.score) best = { score: val, move: m };
