@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChessAgenticCoding</title>
+    <link rel="stylesheet" href="styles/main.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>ChessAgenticCoding</h1>
+      <div class="controls">
+        <button id="newGameBtn">New Game</button>
+        <button id="pauseBtn">Pause</button>
+        <button id="resumeBtn" disabled>Resume</button>
+        <button id="resignBtn">Resign</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="board-wrap">
+        <div id="board" class="board" aria-label="Chessboard" role="grid"></div>
+      </section>
+      <section class="side-panel">
+        <div class="clock white">
+          <div class="label">White</div>
+          <div class="time" id="whiteClock">00:00</div>
+        </div>
+        <div class="clock black">
+          <div class="label">Black</div>
+          <div class="time" id="blackClock">00:00</div>
+        </div>
+        <div class="status" id="status"></div>
+        <div class="moves" id="moves"></div>
+      </section>
+    </main>
+
+    <dialog id="newGameDialog">
+      <form method="dialog" id="newGameForm">
+        <h2>New Game</h2>
+        <label>Choose your side:</label>
+        <div class="row">
+          <label><input type="radio" name="side" value="w" checked /> White</label>
+          <label><input type="radio" name="side" value="b" /> Black</label>
+        </div>
+        <label for="minutes">Minutes per side</label>
+        <input id="minutes" name="minutes" type="number" min="1" max="180" value="10" />
+        <label for="increment">Increment (seconds)</label>
+        <input id="increment" name="increment" type="number" min="0" max="30" value="0" />
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button value="start" id="startGameBtn">Start</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script type="module" src="src/app.js"></script>
+  </body>
+  </html>
+
