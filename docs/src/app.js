@@ -20,6 +20,7 @@ let ui, timer, game, bot;
 let playerSide = 'w';
 let increment = 0;
 let isPaused = false;
+let botThinking = false;
 
 function openNewGameDialog() {
   dlg.showModal();
@@ -57,29 +58,44 @@ function appendMoveSAN(san) {
 }
 
 function onMoveMade(move) {
-  // Switch clock and add increment to the side that just moved
+  if (!move) return;
   if (increment > 0) {
-    if (move.color === 'w') game.state.whiteMs += increment * 1000; else game.state.blackMs += increment * 1000;
+    if (move.color === 'w') game.state.whiteMs += increment * 1000;
+    else game.state.blackMs += increment * 1000;
   }
   timer.switchTurn(game.state.turn);
   updateClocks();
   appendMoveSAN(move.san);
 }
 
-function maybeBotMove() {
-  if (game.isGameOver()) return;
+async function maybeBotMove() {
+  if (!bot || game.isGameOver() || botThinking) return;
   if (game.state.turn !== playerSide) {
-    // Let the UI update first
-    setTimeout(() => {
-      const depth = 2; // Keep it quick
-      const move = bot.chooseMove(game, depth, 1200);
+    botThinking = true;
+    setStatus('Bot thinking...');
+    try {
+      const depth = 2;
+      const sideTime = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
+      const move = await bot.chooseMove(game, depth, Math.max(500, Math.min(2000, sideTime || 1500)));
       if (move) {
         const result = game.playMove(move);
         ui.render(game);
         onMoveMade(result);
         checkResult();
+      } else {
+        checkResult();
       }
-    }, 50);
+    } catch (err) {
+      console.error('Bot move failed', err);
+      setStatus('Bot move failed – you win by error');
+      game.state.result = { outcome: 'error', message: 'Bot failed to move' };
+      timer.stop();
+    } finally {
+      botThinking = false;
+      if (!game.getResult()) {
+        setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
+      }
+    }
   }
 }
 
@@ -96,6 +112,9 @@ function checkResult() {
 }
 
 function startNewGame({ side, minutes, inc }) {
+  if (timer) timer.stop();
+  if (bot) bot.dispose();
+  botThinking = false;
   playerSide = side;
   increment = inc;
   game = createGame({ minutes, increment: inc });
@@ -104,7 +123,7 @@ function startNewGame({ side, minutes, inc }) {
     onUserMove: (move) => {
       if (game.state.turn !== playerSide) return;
       const result = game.playMove(move);
-      if (!result) return; // illegal
+      if (!result) return;
       ui.render(game);
       onMoveMade(result);
       checkResult();
@@ -116,9 +135,11 @@ function startNewGame({ side, minutes, inc }) {
   movesEl.innerHTML = '';
   setStatus(side === 'w' ? 'White to move' : 'Black to move');
   timer = createTimer({
-    onTick: () => {
-      const now = Date.now();
-      if (game.state.turn === 'w') game.state.whiteMs -= 100; else game.state.blackMs -= 100;
+    onTick: (side, delta) => {
+      if (side === 'w') game.state.whiteMs -= delta;
+      else game.state.blackMs -= delta;
+      if (game.state.whiteMs < 0) game.state.whiteMs = 0;
+      if (game.state.blackMs < 0) game.state.blackMs = 0;
       updateClocks();
       if (game.state.whiteMs <= 0 || game.state.blackMs <= 0) {
         const loser = game.state.whiteMs <= 0 ? 'White' : 'Black';
