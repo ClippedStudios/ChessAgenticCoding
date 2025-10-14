@@ -1,4 +1,4 @@
-import { createBoardUI } from './ui/board.js';
+﻿import { createBoardUI } from './ui/board.js';
 import { createGame } from './chess/game.js';
 import { Bot } from './engine/bot.js';
 import { cloneState } from './chess/rules.js';
@@ -29,56 +29,56 @@ function init() {
   let bot;
   let playerSide = 'w';
   let botThinking = false;
-  const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 450 });
+  const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 400, holdMs: 260, maxQueue: 10 });
 
-  function setStatus(text) {
+  const setStatus = (text) => {
     statusEl.textContent = text;
-  }
+  };
 
-  function appendMoveSAN(san) {
+  const appendMoveSAN = (san) => {
     const div = document.createElement('div');
     div.textContent = san;
     movesEl.appendChild(div);
     movesEl.scrollTop = movesEl.scrollHeight;
-  }
+  };
 
-  function formatEval(score, side) {
+  const formatEval = (score, side) => {
     const sign = side === 'w' ? 1 : -1;
     const value = (score / 100) * sign;
-    const numeric = Math.round(value * 100) / 100;
-    return (numeric >= 0 ? '+' : '') + numeric.toFixed(2);
-  }
+    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
+  };
 
-  async function maybeBotMove() {
+  const maybeBotMove = async () => {
     if (!bot || botThinking || game.isGameOver()) return;
     if (game.state.turn === playerSide) return;
 
     botThinking = true;
     setStatus('Bot thinking...');
     const baseState = cloneState(game.state);
-    analysisDisplay.showPosition(baseState, { infoText: 'Exploring moves...' });
+    analysisDisplay.clear({ infoText: 'Exploring moves...' });
     let guessCount = 0;
 
     try {
       const sideMs = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
       const timeBudget = Math.max(300, Math.min(BOT_MOVE_TIME_MS, sideMs || BOT_MOVE_TIME_MS));
       const move = await bot.chooseMove(game, BOT_DEPTH, timeBudget, (payload) => {
+        if (!payload) return;
         const { line = [], depth, score } = payload;
         guessCount += 1;
-        const infoText = `Guess ${guessCount} • depth ${depth} • eval ${formatEval(score, bot.side)}`;
+        const infoText = `Guess #${guessCount} depth ${depth} eval ${formatEval(score, bot.side)}`;
         analysisDisplay.queueLine(baseState, line, { infoText });
       });
+
       if (move) {
         const result = game.playMove(move);
         ui.render(game);
         appendMoveSAN(result.san);
       }
-      checkResult();
     } catch (err) {
       console.error('Bot move failed', err);
       game.state.result = { outcome: 'error', message: 'Bot failed to move' };
       setStatus('Bot move failed - you win by error');
-      analysisDisplay.setInfo('Bot encountered an error.');
+      analysisDisplay.clear({ infoText: 'Bot encountered an error.' });
     } finally {
       botThinking = false;
       if (!game.getResult()) {
@@ -86,24 +86,23 @@ function init() {
       }
       if (game) {
         analysisDisplay.showPosition(cloneState(game.state), {
-          infoText: game.getResult()
-            ? 'Bot finished.'
-            : 'Ready for next move.',
+          infoText: game.getResult() ? 'Bot finished.' : 'Ready for your move.',
         });
       }
+      checkResult();
     }
-  }
+  };
 
-  function checkResult() {
+  const checkResult = () => {
     const res = game.getResult();
     if (res) {
       setStatus(res.message);
     } else {
       setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
     }
-  }
+  };
 
-  function startNewGame({ side }) {
+  const startNewGame = ({ side }) => {
     if (bot) bot.dispose();
 
     playerSide = side;
@@ -115,6 +114,7 @@ function init() {
     ui = createBoardUI(boardEl, game, {
       onUserMove: (move) => {
         if (botThinking || game.state.turn !== playerSide) return;
+        analysisDisplay.clear({ infoText: 'Player exploring...' });
         const result = game.playMove(move);
         if (!result) return;
         ui.render(game);
@@ -134,7 +134,7 @@ function init() {
     dlg.close();
 
     maybeBotMove();
-  }
+  };
 
   newGameBtn.addEventListener('click', () => dlg.showModal());
 

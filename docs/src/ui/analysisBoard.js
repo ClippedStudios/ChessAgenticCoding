@@ -38,19 +38,28 @@ function renderMatrix(rootEl, matrix) {
   }
 }
 
-export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 550, holdMs = 450 } = {}) {
+export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 450, holdMs = 350, maxQueue = 12 } = {}) {
   let frames = [];
   let currentIndex = 0;
   let timer = null;
   let queue = [];
   let activeMeta = null;
   let advancing = false;
+  let finishTimer = null;
+
+  function clearFinishTimer() {
+    if (finishTimer) {
+      clearTimeout(finishTimer);
+      finishTimer = null;
+    }
+  }
 
   function stopAnimation() {
     if (timer) {
       clearInterval(timer);
       timer = null;
     }
+    clearFinishTimer();
   }
 
   function setInfo(text) {
@@ -76,14 +85,14 @@ export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 550, holdMs
     stopAnimation();
     if (frames.length <= 1) {
       showFrames();
-      setTimeout(finishSequence, holdMs);
+      finishTimer = setTimeout(finishSequence, holdMs);
       return;
     }
     timer = setInterval(() => {
       currentIndex += 1;
       if (currentIndex >= frames.length) {
         stopAnimation();
-        setTimeout(finishSequence, holdMs);
+        finishTimer = setTimeout(finishSequence, holdMs);
         return;
       }
       showFrames();
@@ -110,6 +119,9 @@ export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 550, holdMs
   }
 
   function queueLine(baseState, line, meta = {}) {
+    if (maxQueue && queue.length >= maxQueue) {
+      queue.shift();
+    }
     queue.push({ baseState, line, meta });
     if (!advancing) {
       loadSequence(queue.shift());
