@@ -51,7 +51,65 @@ function init() {
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
   };
 
-  const maybeBotMove = async () => {\n    if (!bot || botThinking || game.isGameOver()) return;\n    if (game.state.turn === playerSide) return;\n\n    botThinking = true;\n    const mode = botModeSetting;\n    setStatus(mode === 'random' ? 'Bot experimenting with ideas…' : 'Bot thinking...');\n    const baseState = cloneState(game.state);\n    analysisDisplay.showPosition(baseState, { infoText: 'Exploring moves...' });\n    let updateCount = 0;\n\n    const handleUpdate = (payload) => {\n      if (!payload) return;\n      if (payload.type === 'sample') {\n        const sampleIndex = payload.samples ?? ++updateCount;\n        const moveLabel = payload.moveNotation ?   : '';\n        const infoText = Sample # eval ;\n        analysisDisplay.queueLine(baseState, payload.line || [], { infoText });\n        return;\n      }\n      if (payload.type === 'pv') {\n        updateCount += 1;\n        const moveLabel = payload.currentMove ?   : '';\n        const infoText = Guess # depth  eval ;\n        analysisDisplay.queueLine(baseState, payload.line || [], { infoText });\n      }\n    };\n\n    try {\n      const sideMs = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;\n      const minBudget = mode === 'random' ? 200 : 500;\n      const targetBudget = Math.max(minBudget, botBudgetMs);\n      const timeBudget = Math.max(minBudget, Math.min(targetBudget, sideMs || targetBudget));\n      await new Promise((resolve) => requestAnimationFrame(resolve));\n      const move = await bot.chooseMove(game, {\n        mode,\n        depth: BOT_DEPTH,\n        timeMs: timeBudget,\n        sampleWindowMs: timeBudget,\n        onUpdate: handleUpdate,\n      });\n\n      if (move) {\n        const result = game.playMove(move);\n        ui.render(game);\n        appendMoveSAN(result.san);\n      }\n    } catch (err) {\n      console.error('Bot move failed', err);\n      game.state.result = { outcome: 'error', message: 'Bot failed to move' };\n      setStatus('Bot move failed - you win by error');\n      analysisDisplay.clear({ infoText: 'Bot encountered an error.' });\n    } finally {\n      botThinking = false;\n      if (!game.getResult()) {\n        setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');\n      }\n      if (game) {\n        analysisDisplay.showPosition(cloneState(game.state), {\n          infoText: game.getResult() ? 'Bot finished.' : 'Ready for your move.',\n        });\n      }\n      checkResult();\n    }\n  };
+  const checkResult = () => {
+    const res = game.getResult();
+    if (res) {
+      setStatus(res.message);
+    } else {
+      setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
+    }
+  };
+
+  const maybeBotMove = async () => {
+    if (!bot || botThinking || game.isGameOver()) return;
+    if (game.state.turn === playerSide) return;
+
+    botThinking = true;
+    const mode = botModeSetting;
+    setStatus(mode === 'random' ? 'Bot experimenting with ideas...' : 'Bot thinking...');
+    const baseState = cloneState(game.state);
+    analysisDisplay.showPosition(baseState, { infoText: 'Exploring moves...' });
+    let updateCount = 0;
+
+    const handleUpdate = (payload) => {
+      if (!payload) return;
+      if (payload.type === 'sample') {
+        const sampleIndex = payload.samples ?? (updateCount += 1);
+        const moveLabel = payload.moveNotation ? ` ${payload.moveNotation}` : '';
+        const infoText = `Sample #${sampleIndex}${moveLabel} eval ${formatEval(payload.score, bot.side)}`;
+        analysisDisplay.queueLine(baseState, payload.line || [], { infoText });
+        return;
+      }
+      if (payload.type === 'pv') {
+        updateCount += 1;
+        const moveLabel = payload.currentMove ? ` ${payload.currentMove}` : '';
+        const infoText = `Guess #${updateCount} depth ${payload.depth}${moveLabel} eval ${formatEval(payload.score, bot.side)}`;
+        analysisDisplay.queueLine(baseState, payload.line || [], { infoText });
+      }
+    };
+
+    try {
+      const sideMs = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
+      const minBudget = mode === 'random' ? 200 : 500;
+      const targetBudget = Math.max(minBudget, botBudgetMs);
+      const timeBudget = Math.max(minBudget, Math.min(targetBudget, sideMs || targetBudget));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const move = await bot.chooseMove(game, {
+        mode,
+        depth: BOT_DEPTH,
+        timeMs: timeBudget,
+        sampleWindowMs: timeBudget,
+        onUpdate: handleUpdate,
+      });
+
+      if (move) {
+        const result = game.playMove(move);
+        ui.render(game);
+        appendMoveSAN(result.san);
+      }
+    } catch (err) {
+      console.error('Bot move failed', err);
+      game.state.result = { outcome: 'error', message: 'Bot failed to move' };
       setStatus('Bot move failed - you win by error');
       analysisDisplay.clear({ infoText: 'Bot encountered an error.' });
     } finally {
@@ -68,16 +126,42 @@ function init() {
     }
   };
 
-  const checkResult = () => {
-    const res = game.getResult();
-    if (res) {
-      setStatus(res.message);
-    } else {
-      setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
-    }
-  };
+  const startNewGame = ({ side, mode, sampleSeconds }) => {
+    if (bot) bot.dispose();
 
-  const startNewGame = ({ side, mode, sampleSeconds }) => {\n    if (bot) bot.dispose();\n\n    playerSide = side;\n    botModeSetting = mode;\n    const seconds = Number.isFinite(sampleSeconds) ? sampleSeconds : DEFAULT_SAMPLE_SECONDS;\n    botBudgetMs = Math.max(1, Math.min(30, seconds)) * 1000;\n    botThinking = false;\n\n    game = createGame();\n    bot = new Bot(playerSide === 'w' ? 'b' : 'w');\n\n    ui = createBoardUI(boardEl, game, {\n      onUserMove: (move) => {\n        if (botThinking || game.state.turn !== playerSide) return;\n        analysisDisplay.clear({ infoText: 'Player exploring...' });\n        const result = game.playMove(move);\n        if (!result) return;\n        ui.render(game);\n        appendMoveSAN(result.san);\n        checkResult();\n        maybeBotMove();\n      },\n    });\n\n    ui.setPerspective(playerSide);\n    ui.setPlayerSide(playerSide);\n    ui.render(game);\n\n    movesEl.innerHTML = '';\n    setStatus(playerSide === 'w' ? 'White to move' : 'Black to move');\n    analysisDisplay.showPosition(cloneState(game.state), { infoText: 'Waiting for bot...' });\n    dlg.close();\n\n    maybeBotMove();\n  };
+    playerSide = side;
+    botModeSetting = mode;
+    const seconds = Number.isFinite(sampleSeconds) ? sampleSeconds : DEFAULT_SAMPLE_SECONDS;
+    botBudgetMs = Math.max(1, Math.min(30, seconds)) * 1000;
+    botThinking = false;
+
+    game = createGame();
+    bot = new Bot(playerSide === 'w' ? 'b' : 'w');
+
+    ui = createBoardUI(boardEl, game, {
+      onUserMove: (move) => {
+        if (botThinking || game.state.turn !== playerSide) return;
+        analysisDisplay.clear({ infoText: 'Player exploring...' });
+        const result = game.playMove(move);
+        if (!result) return;
+        ui.render(game);
+        appendMoveSAN(result.san);
+        checkResult();
+        maybeBotMove();
+      },
+    });
+
+    ui.setPerspective(playerSide);
+    ui.setPlayerSide(playerSide);
+    ui.render(game);
+
+    movesEl.innerHTML = '';
+    setStatus(playerSide === 'w' ? 'White to move' : 'Black to move');
+    analysisDisplay.showPosition(cloneState(game.state), { infoText: 'Waiting for bot...' });
+    dlg.close();
+
+    maybeBotMove();
+  };
 
   newGameBtn.addEventListener('click', () => dlg.showModal());
 
@@ -85,7 +169,11 @@ function init() {
     event.preventDefault();
     const sideInput = form.elements.namedItem('side');
     const side = sideInput ? sideInput.value : 'w';
-    const modeInput = form.elements.namedItem('botMode');\n      const mode = modeInput ? modeInput.value : 'search';\n      const secondsInput = form.elements.namedItem('sampleSeconds');\n      const sampleSeconds = secondsInput ? parseFloat(secondsInput.value) : DEFAULT_SAMPLE_SECONDS;\n      startNewGame({ side: side || 'w', mode, sampleSeconds });
+    const modeInput = form.elements.namedItem('botMode');
+    const mode = modeInput ? modeInput.value : 'search';
+    const secondsInput = form.elements.namedItem('sampleSeconds');
+    const sampleSeconds = secondsInput ? parseFloat(secondsInput.value) : DEFAULT_SAMPLE_SECONDS;
+    startNewGame({ side: side || 'w', mode, sampleSeconds });
   });
 
   resignBtn.addEventListener('click', () => {
@@ -104,9 +192,3 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
-
-
-
-
-
-
