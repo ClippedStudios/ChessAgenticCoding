@@ -38,6 +38,20 @@
           <label><input type="radio" name="side" value="w" checked /> White</label>
           <label><input type="radio" name="side" value="b" /> Black</label>
         </div>
+        <label for="botMode">Bot style</label>
+        <select id="botMode" name="botMode">
+          <option value="search" selected>Strategic search</option>
+          <option value="random">Chaotic sacrifices</option>
+        </select>
+        <label for="sampleSeconds">Think time (seconds)</label>
+        <input
+          id="sampleSeconds"
+          name="sampleSeconds"
+          type="number"
+          min="1"
+          max="30"
+          value="6"
+        />
         <menu>
           <button value="cancel">Cancel</button>
           <button value="start" id="startGameBtn">Start</button>

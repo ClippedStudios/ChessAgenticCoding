@@ -21,14 +21,28 @@ export class Bot {
     if (!this.worker) this.worker = new Worker(WORKER_URL, { type: 'module' });
   }
 
-  chooseMove(game, depth = 2, timeLimitMs = 10_000, onUpdate) {
+  chooseMove(game, options = {}) {
     this.ensureWorker();
+    let config;
+    if (typeof options === 'number') {
+      config = { depth: options };
+    } else {
+      config = options || {};
+    }
+    const {
+      mode = 'search',
+      depth = 2,
+      timeMs = 10_000,
+      sampleWindowMs = timeMs,
+      onUpdate,
+    } = config;
+
     const statePayload = serializeState(game.state);
     return new Promise((resolve, reject) => {
-      const timer = timeLimitMs > 0 ? setTimeout(() => {
+      const timer = timeMs > 0 ? setTimeout(() => {
         cleanup();
         resolve(null);
-      }, timeLimitMs + 500) : null;
+      }, timeMs + 500) : null;
 
       const cleanup = () => {
         if (timer) clearTimeout(timer);
@@ -39,7 +53,7 @@ export class Bot {
       const handleMessage = (event) => {
         const { data } = event;
         if (!data || typeof data !== 'object') return;
-        if (data.type === 'pv') {
+        if (data.type === 'pv' || data.type === 'sample') {
           onUpdate?.(data);
           return;
         }
@@ -58,10 +72,12 @@ export class Bot {
       this.worker.addEventListener('error', handleError);
       this.worker.postMessage({
         type: 'analyze',
+        mode,
         state: statePayload,
         side: this.side,
         depth,
-        timeLimitMs,
+        timeLimitMs: timeMs,
+        sampleWindowMs,
       });
     });
   }

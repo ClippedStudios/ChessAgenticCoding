@@ -1,4 +1,4 @@
-import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra } from '../chess/rules.js';
+﻿import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra } from '../chess/rules.js';
 
 const PIECE_VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 };
 
@@ -107,10 +107,69 @@ function minimax(state, depth, alpha, beta, botSide, start, timeLimitMs) {
   return { score: bestScore, move: bestMove, line: bestLine };
 }
 
+function runRandomSampling(state, side, sampleWindowMs = 2000) {
+  const legal = orderMoves(generateLegalMoves(state));
+  const start = performance.now();
+  const baseClone = cloneState(state);
+  if (!legal.length) {
+    self.postMessage({
+      type: 'result',
+      move: null,
+      line: [],
+      moveNotation: '',
+      score: 0,
+      samples: 0,
+      elapsed: 0,
+    });
+    return;
+  }
+  let bestMove = null;
+  let bestScore = -Infinity;
+  let samples = 0;
+  const window = Math.max(0, sampleWindowMs);
+  while (true) {
+    const elapsed = performance.now() - start;
+    if (samples > 0 && elapsed >= window) break;
+    const move = legal[Math.floor(Math.random() * legal.length)];
+    const sampleState = cloneState(baseClone);
+    makeMove(sampleState, move, { skipResult: true });
+    const score = evaluate(sampleState, side);
+    samples += 1;
+    self.postMessage({
+      type: 'sample',
+      move,
+      moveNotation: moveToNotation(move),
+      score,
+      samples,
+      elapsed,
+      line: [move],
+    });
+    if (score > bestScore || !bestMove) {
+      bestScore = score;
+      bestMove = move;
+    }
+    if (window === 0 && samples >= 1) break;
+  }
+  self.postMessage({
+    type: 'result',
+    move: bestMove,
+    line: bestMove ? [bestMove] : [],
+    moveNotation: moveToNotation(bestMove),
+    score: bestScore === -Infinity ? 0 : bestScore,
+    samples,
+    elapsed: performance.now() - start,
+  });
+}
+
 self.addEventListener('message', (event) => {
   const { data } = event;
   if (!data || data.type !== 'analyze') return;
-  const { state, side, depth = 2, timeLimitMs = 10_000 } = data;
+  const { state, side, depth = 2, timeLimitMs = 10_000, sampleWindowMs = timeLimitMs, mode = 'search' } = data;
+  if (mode === 'random') {
+    runRandomSampling(state, side, sampleWindowMs);
+    return;
+  }
+
   const start = performance.now();
   let bestMove = null;
   let bestLine = [];
@@ -149,4 +208,3 @@ self.addEventListener('message', (event) => {
     elapsed: performance.now() - start,
   });
 });
-
