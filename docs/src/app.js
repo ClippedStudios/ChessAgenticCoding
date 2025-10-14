@@ -57,14 +57,16 @@ function init() {
     setStatus('Bot thinking...');
     const baseState = cloneState(game.state);
     analysisDisplay.showPosition(baseState, { infoText: 'Exploring moves...' });
+    let guessCount = 0;
 
     try {
       const sideMs = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
       const timeBudget = Math.max(300, Math.min(BOT_MOVE_TIME_MS, sideMs || BOT_MOVE_TIME_MS));
       const move = await bot.chooseMove(game, BOT_DEPTH, timeBudget, (payload) => {
         const { line = [], depth, score } = payload;
-        const infoText = `Depth ${depth} • Eval ${formatEval(score, bot.side)}`;
-        analysisDisplay.showLine(baseState, line, { infoText });
+        guessCount += 1;
+        const infoText = `Guess ${guessCount} • depth ${depth} • eval ${formatEval(score, bot.side)}`;
+        analysisDisplay.queueLine(baseState, line, { infoText });
       });
       if (move) {
         const result = game.playMove(move);

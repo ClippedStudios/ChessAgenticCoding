@@ -38,10 +38,13 @@ function renderMatrix(rootEl, matrix) {
   }
 }
 
-export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 550 } = {}) {
+export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 550, holdMs = 450 } = {}) {
   let frames = [];
   let currentIndex = 0;
   let timer = null;
+  let queue = [];
+  let activeMeta = null;
+  let advancing = false;
 
   function stopAnimation() {
     if (timer) {
@@ -60,19 +63,61 @@ export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 550 } = {})
     renderMatrix(rootEl, matrix);
   }
 
-  function play() {
+  function finishSequence() {
+    stopAnimation();
+    advancing = false;
+    if (queue.length > 0) {
+      const next = queue.shift();
+      loadSequence(next);
+    }
+  }
+
+  function playOnce() {
     stopAnimation();
     if (frames.length <= 1) {
       showFrames();
+      setTimeout(finishSequence, holdMs);
       return;
     }
     timer = setInterval(() => {
-      currentIndex = (currentIndex + 1) % frames.length;
+      currentIndex += 1;
+      if (currentIndex >= frames.length) {
+        stopAnimation();
+        setTimeout(finishSequence, holdMs);
+        return;
+      }
       showFrames();
     }, frameDelay);
   }
 
+  function loadSequence(entry) {
+    const { baseState, line, meta = {} } = entry;
+    stopAnimation();
+    advancing = true;
+    const baseClone = cloneState(baseState);
+    const lineState = cloneState(baseState);
+    const sequence = [cloneBoard(baseClone.board)];
+    for (const move of line) {
+      makeMove(lineState, move, { skipResult: true });
+      sequence.push(cloneBoard(lineState.board));
+    }
+    frames = sequence;
+    currentIndex = 0;
+    activeMeta = meta;
+    if (meta.infoText) setInfo(meta.infoText);
+    showFrames();
+    playOnce();
+  }
+
+  function queueLine(baseState, line, meta = {}) {
+    queue.push({ baseState, line, meta });
+    if (!advancing) {
+      loadSequence(queue.shift());
+    }
+  }
+
   function showLine(baseState, line, meta = {}) {
+    queue = [];
     stopAnimation();
     const baseClone = cloneState(baseState);
     const sequence = [cloneBoard(baseClone.board)];
@@ -83,13 +128,16 @@ export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 550 } = {})
     }
     frames = sequence;
     currentIndex = 0;
+    activeMeta = meta;
     if (meta.infoText) setInfo(meta.infoText);
     showFrames();
-    play();
+    playOnce();
   }
 
   function showPosition(state, meta = {}) {
     stopAnimation();
+    queue = [];
+    advancing = false;
     frames = [cloneBoard(state.board)];
     currentIndex = 0;
     if (meta.infoText) setInfo(meta.infoText);
@@ -98,6 +146,8 @@ export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 550 } = {})
 
   function clear(meta = {}) {
     stopAnimation();
+    queue = [];
+    advancing = false;
     frames = [];
     currentIndex = 0;
     rootEl.innerHTML = '';
@@ -109,7 +159,7 @@ export function createAnalysisDisplay(rootEl, infoEl, { frameDelay = 550 } = {})
     showPosition,
     setInfo,
     clear,
+    queueLine,
     stop: stopAnimation,
   };
 }
-
