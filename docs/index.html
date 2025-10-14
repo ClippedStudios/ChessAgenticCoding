@@ -16,12 +16,17 @@
     </header>
 
     <main class="layout">
-      <section class="board-wrap">
-        <div id="board" class="board" aria-label="Chessboard" role="grid"></div>
-      </section>
-      <section class="side-panel">
+      <section class="primary">
+        <div class="board-wrap">
+          <div id="board" class="board" aria-label="Chessboard" role="grid"></div>
+        </div>
         <div class="status" id="status"></div>
         <div class="moves" id="moves"></div>
+      </section>
+      <section class="analysis-panel">
+        <h2>Bot Analysis</h2>
+        <div id="analysisBoard" class="board analysis" aria-label="Bot analysis board" role="grid"></div>
+        <div class="analysis-info" id="analysisInfo">Waiting for bot...</div>
       </section>
     </main>
 

@@ -25,7 +25,9 @@ function evaluate(state, side) {
     mobility = 0;
   }
   const mobilityScore = Math.min(mobility, 30) * 5 * (state.turn === 'w' ? 1 : -1);
-  const total = material + mobilityScore;
+  const perspectiveMaterial = side === 'w' ? material : -material;
+  const sacrificeBias = -0.08 * perspectiveMaterial;
+  const total = material + mobilityScore + sacrificeBias;
   return side === 'w' ? total : -total;
 }
 
@@ -39,7 +41,7 @@ function orderMoves(moves) {
 
 function minimax(state, depth, alpha, beta, botSide, start, timeLimitMs) {
   if (timeLimitMs && performance.now() - start > timeLimitMs) {
-    return { score: evaluate(state, botSide), move: null, timedOut: true };
+    return { score: evaluate(state, botSide), move: null, line: [], timedOut: true };
   }
 
   const moves = orderMoves(generateLegalMoves(state));
@@ -47,16 +49,17 @@ function minimax(state, depth, alpha, beta, botSide, start, timeLimitMs) {
     if (moves.length === 0) {
       if (inCheck(state, state.turn)) {
         const mateScore = (state.turn === botSide ? -1 : 1) * 100000;
-        return { score: mateScore, move: null };
+        return { score: mateScore, move: null, line: [] };
       }
-      return { score: 0, move: null };
+      return { score: 0, move: null, line: [] };
     }
-    return { score: evaluate(state, botSide), move: null };
+    return { score: evaluate(state, botSide), move: null, line: [] };
   }
 
   const maximizing = state.turn === botSide;
   let bestScore = maximizing ? -Infinity : Infinity;
   let bestMove = null;
+  let bestLine = [];
 
   for (const move of moves) {
     const next = cloneState(state);
@@ -64,46 +67,74 @@ function minimax(state, depth, alpha, beta, botSide, start, timeLimitMs) {
     const child = minimax(next, depth - 1, alpha, beta, botSide, start, timeLimitMs);
     if (child.timedOut) {
       if (bestMove) {
-        return { score: bestScore, move: bestMove, timedOut: true };
+        return { score: bestScore, move: bestMove, line: bestLine, timedOut: true };
       }
-      return { score: child.score, move, timedOut: true };
+      return {
+        score: child.score,
+        move,
+        line: [move, ...(child.line || [])],
+        timedOut: true,
+      };
     }
     const value = child.score;
+    const moveLine = [move, ...(child.line || [])];
     if (maximizing) {
       if (value > bestScore || bestMove === null) {
         bestScore = value;
         bestMove = move;
+        bestLine = moveLine;
       }
       alpha = Math.max(alpha, value);
     } else {
       if (value < bestScore || bestMove === null) {
         bestScore = value;
         bestMove = move;
+        bestLine = moveLine;
       }
       beta = Math.min(beta, value);
     }
     if (beta <= alpha) break;
   }
 
-  return { score: bestScore, move: bestMove };
+  return { score: bestScore, move: bestMove, line: bestLine };
 }
 
 self.addEventListener('message', (event) => {
-  const { state, side, depth = 2, timeLimitMs = 1500 } = event.data;
+  const { data } = event;
+  if (!data || data.type !== 'analyze') return;
+  const { state, side, depth = 2, timeLimitMs = 10_000 } = data;
   const start = performance.now();
   let bestMove = null;
+  let bestLine = [];
+  let bestScoreValue = null;
   let currentDepth = Math.max(1, depth);
 
   while (currentDepth <= depth + 1) {
     const searchState = cloneState(state);
     const result = minimax(searchState, currentDepth, -Infinity, Infinity, side, start, timeLimitMs);
-    if (result.move) bestMove = result.move;
+    if (result.move) {
+      bestMove = result.move;
+      bestLine = result.line && result.line.length ? result.line : [result.move];
+      bestScoreValue = result.score;
+    }
+    self.postMessage({
+      type: 'pv',
+      depth: currentDepth,
+      line: result.line && result.line.length ? result.line : (result.move ? [result.move] : []),
+      score: result.score,
+      elapsed: performance.now() - start,
+    });
     if (result.timedOut) break;
-    currentDepth++;
+    currentDepth += 1;
     if (timeLimitMs && performance.now() - start > timeLimitMs) break;
   }
 
-  self.postMessage({ move: bestMove });
+  self.postMessage({
+    type: 'result',
+    move: bestMove,
+    line: bestLine,
+    score: bestScoreValue ?? 0,
+    elapsed: performance.now() - start,
+  });
 });
-
 

@@ -21,7 +21,7 @@ export class Bot {
     if (!this.worker) this.worker = new Worker(WORKER_URL, { type: 'module' });
   }
 
-  chooseMove(game, depth = 2, timeLimitMs = 1500) {
+  chooseMove(game, depth = 2, timeLimitMs = 10_000, onUpdate) {
     this.ensureWorker();
     const statePayload = serializeState(game.state);
     return new Promise((resolve, reject) => {
@@ -37,9 +37,16 @@ export class Bot {
       };
 
       const handleMessage = (event) => {
-        cleanup();
-        const { move } = event.data;
-        resolve(move || null);
+        const { data } = event;
+        if (!data || typeof data !== 'object') return;
+        if (data.type === 'pv') {
+          onUpdate?.(data);
+          return;
+        }
+        if (data.type === 'result') {
+          cleanup();
+          resolve(data.move || null);
+        }
       };
 
       const handleError = (err) => {
@@ -50,6 +57,7 @@ export class Bot {
       this.worker.addEventListener('message', handleMessage);
       this.worker.addEventListener('error', handleError);
       this.worker.postMessage({
+        type: 'analyze',
         state: statePayload,
         side: this.side,
         depth,
@@ -65,3 +73,4 @@ export class Bot {
     }
   }
 }
+
