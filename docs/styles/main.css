@@ -9,7 +9,7 @@ body { display: flex; flex-direction: column; }
 .layout { display: grid; grid-template-columns: 1fr 260px; gap: 12px; padding: 12px; }
 .board-wrap { display: flex; align-items: center; justify-content: center; }
 .board { width: min(90vmin, 720px); height: min(90vmin, 720px); display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); border: 2px solid #111; }
-.square { position: relative; display: flex; align-items: center; justify-content: center; font-size: calc(min(90vmin, 720px) / 10); user-select: none; cursor: pointer; }
+.square { position: relative; display: flex; align-items: center; justify-content: center; font-size: calc(min(90vmin, 720px) / 10); line-height: 1; user-select: none; cursor: pointer; aspect-ratio: 1 / 1; }
 .light { background: #f0d9b5; }
 .dark { background: #b58863; }
 .square.highlight { outline: 3px solid #10b981; outline-offset: -3px; }
@@ -35,4 +35,5 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
   .layout { grid-template-columns: 1fr; }
   .side-panel { order: -1; }
 }
+
 

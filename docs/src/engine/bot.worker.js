@@ -106,3 +106,4 @@ self.addEventListener('message', (event) => {
   self.postMessage({ move: bestMove });
 });
 
+

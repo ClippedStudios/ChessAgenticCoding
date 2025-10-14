@@ -15,11 +15,18 @@ const resignBtn = document.getElementById('resignBtn');
 
 const whiteClockEl = document.getElementById('whiteClock');
 const blackClockEl = document.getElementById('blackClock');
+const whiteClockPanel = document.querySelector('.clock.white');
+const blackClockPanel = document.querySelector('.clock.black');
 
-let ui, timer, game, bot;
+const BOT_DEPTH = 2;
+const BOT_MOVE_TIME_MS = 650;
+
+let ui;
+let timer;
+let game;
+let bot;
 let playerSide = 'w';
 let increment = 0;
-let isPaused = false;
 let botThinking = false;
 
 function openNewGameDialog() {
@@ -27,23 +34,22 @@ function openNewGameDialog() {
 }
 
 function formatMs(ms) {
-  const neg = ms < 0; if (neg) ms = -ms;
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
+  const neg = ms < 0;
+  const abs = Math.max(0, Math.floor(Math.abs(ms) / 1000));
+  const minutes = Math.floor(abs / 60);
+  const seconds = abs % 60;
   const pad = (n) => n.toString().padStart(2, '0');
-  return `${neg ? '-' : ''}${pad(m)}:${pad(r)}`;
+  return `${neg ? '-' : ''}${pad(minutes)}:${pad(seconds)}`;
 }
 
 function updateClocks() {
-  const wc = game.state.whiteMs;
-  const bc = game.state.blackMs;
-  whiteClockEl.textContent = formatMs(wc);
-  blackClockEl.textContent = formatMs(bc);
-  document.querySelector('.clock.white').classList.toggle('active', game.state.turn === 'w');
-  document.querySelector('.clock.black').classList.toggle('active', game.state.turn === 'b');
-  document.querySelector('.clock.white').classList.toggle('low', wc <= 10000);
-  document.querySelector('.clock.black').classList.toggle('low', bc <= 10000);
+  const { whiteMs, blackMs, turn } = game.state;
+  whiteClockEl.textContent = formatMs(whiteMs);
+  blackClockEl.textContent = formatMs(blackMs);
+  whiteClockPanel.classList.toggle('active', turn === 'w');
+  blackClockPanel.classList.toggle('active', turn === 'b');
+  whiteClockPanel.classList.toggle('low', whiteMs <= 10_000);
+  blackClockPanel.classList.toggle('low', blackMs <= 10_000);
 }
 
 function setStatus(text) {
@@ -69,32 +75,35 @@ function onMoveMade(move) {
 }
 
 async function maybeBotMove() {
-  if (!bot || game.isGameOver() || botThinking) return;
-  if (game.state.turn !== playerSide) {
-    botThinking = true;
-    setStatus('Bot thinking...');
-    try {
-      const depth = 2;
-      const sideTime = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
-      const move = await bot.chooseMove(game, depth, Math.max(500, Math.min(2000, sideTime || 1500)));
-      if (move) {
-        const result = game.playMove(move);
-        ui.render(game);
-        onMoveMade(result);
-        checkResult();
-      } else {
-        checkResult();
-      }
-    } catch (err) {
-      console.error('Bot move failed', err);
-      setStatus('Bot move failed – you win by error');
-      game.state.result = { outcome: 'error', message: 'Bot failed to move' };
-      timer.stop();
-    } finally {
-      botThinking = false;
-      if (!game.getResult()) {
-        setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
-      }
+  if (!bot || botThinking || game.isGameOver()) return;
+  if (game.state.turn === playerSide) return;
+
+  botThinking = true;
+  setStatus('Bot thinking...');
+
+  try {
+    const depth = BOT_DEPTH;
+    const sideMs = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
+    const timeBudget = Math.max(300, Math.min(BOT_MOVE_TIME_MS, sideMs || BOT_MOVE_TIME_MS));
+    const move = await bot.chooseMove(game, depth, timeBudget);
+
+    if (move) {
+      const result = game.playMove(move);
+      ui.render(game);
+      onMoveMade(result);
+      checkResult();
+    } else {
+      checkResult();
+    }
+  } catch (err) {
+    console.error('Bot move failed', err);
+    game.state.result = { outcome: 'error', message: 'Bot failed to move' };
+    setStatus('Bot move failed - you win by error');
+    timer.stop();
+  } finally {
+    botThinking = false;
+    if (!game.getResult()) {
+      setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
     }
   }
 }
@@ -114,50 +123,63 @@ function checkResult() {
 function startNewGame({ side, minutes, inc }) {
   if (timer) timer.stop();
   if (bot) bot.dispose();
-  botThinking = false;
+
   playerSide = side;
   increment = inc;
+  botThinking = false;
+
   game = createGame({ minutes, increment: inc });
-  bot = new Bot('w' === side ? 'b' : 'w');
+  bot = new Bot(playerSide === 'w' ? 'b' : 'w');
+
   ui = createBoardUI(boardEl, game, {
     onUserMove: (move) => {
-      if (game.state.turn !== playerSide) return;
+      if (botThinking || game.state.turn !== playerSide) return;
       const result = game.playMove(move);
       if (!result) return;
       ui.render(game);
       onMoveMade(result);
       checkResult();
       maybeBotMove();
-    }
+    },
   });
+
   ui.setPerspective(playerSide);
+  ui.setPlayerSide(playerSide);
   ui.render(game);
+
   movesEl.innerHTML = '';
-  setStatus(side === 'w' ? 'White to move' : 'Black to move');
+  setStatus(playerSide === 'w' ? 'White to move' : 'Black to move');
+
   timer = createTimer({
-    onTick: (side, delta) => {
-      if (side === 'w') game.state.whiteMs -= delta;
-      else game.state.blackMs -= delta;
+    onTick: (side, deltaMs) => {
+      if (side === 'w') game.state.whiteMs -= deltaMs;
+      else game.state.blackMs -= deltaMs;
+
       if (game.state.whiteMs < 0) game.state.whiteMs = 0;
       if (game.state.blackMs < 0) game.state.blackMs = 0;
+
       updateClocks();
+
       if (game.state.whiteMs <= 0 || game.state.blackMs <= 0) {
         const loser = game.state.whiteMs <= 0 ? 'White' : 'Black';
         game.state.result = { outcome: 'time', message: `${loser} loses on time` };
         checkResult();
       }
-    }
+    },
   });
+
   timer.start(game.state.turn);
   pauseBtn.disabled = false;
   resumeBtn.disabled = true;
   updateClocks();
   dlg.close();
-  if (game.state.turn !== playerSide) maybeBotMove();
+
+  maybeBotMove();
 }
 
 newGameBtn.addEventListener('click', openNewGameDialog);
-startGameBtn.addEventListener('click', (e) => {
+
+startGameBtn.addEventListener('click', () => {
   const form = document.getElementById('newGameForm');
   const side = form.side.value;
   const minutes = parseInt(form.minutes.value || '10', 10);
@@ -166,25 +188,27 @@ startGameBtn.addEventListener('click', (e) => {
 });
 
 pauseBtn.addEventListener('click', () => {
+  if (!timer) return;
   timer.pause();
-  isPaused = true;
   pauseBtn.disabled = true;
   resumeBtn.disabled = false;
 });
+
 resumeBtn.addEventListener('click', () => {
+  if (!timer) return;
   timer.resume();
-  isPaused = false;
   pauseBtn.disabled = false;
   resumeBtn.disabled = true;
 });
+
 resignBtn.addEventListener('click', () => {
-  if (!game) return;
+  if (!game || game.isGameOver()) return;
   const loser = playerSide === 'w' ? 'White' : 'Black';
   game.state.result = { outcome: 'resign', message: `${loser} resigns` };
+  timer.stop();
   ui.render(game);
   checkResult();
 });
 
-// Show new game dialog on first load
 openNewGameDialog();
 

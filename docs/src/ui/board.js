@@ -1,35 +1,60 @@
-import { generateLegalMoves, pieceAt, toSAN } from '../chess/rules.js';
+import { generateLegalMoves, pieceAt } from '../chess/rules.js';
 
 const UNICODE = {
-  'K': '♔','Q':'♕','R':'♖','B':'♗','N':'♘','P':'♙',
-  'k': '♚','q':'♛','r':'♜','b':'♝','n':'♞','p':'♟',
+  K: '\u2654',
+  Q: '\u2655',
+  R: '\u2656',
+  B: '\u2657',
+  N: '\u2658',
+  P: '\u2659',
+  k: '\u265A',
+  q: '\u265B',
+  r: '\u265C',
+  b: '\u265D',
+  n: '\u265E',
+  p: '\u265F',
 };
 
-export function createBoardUI(rootEl, game, { onUserMove }) {
+export function createBoardUI(rootEl, game, { onUserMove } = {}) {
   let perspective = 'w';
+  let playerSide = null;
   let selected = null;
-  let legalTargets = new Set();
+  const legalTargets = new Set();
   let lastMove = null;
 
-  function setPerspective(side) { perspective = side; }
+  function setPerspective(side) {
+    perspective = side;
+  }
 
-  function coordsForIndex(i) { return { r: Math.floor(i / 8), c: i % 8 }; }
-  function indexForCoords(r,c) { return r*8+c; }
+  function setPlayerSide(side) {
+    playerSide = side;
+  }
 
-  function render(game) {
+  function coordsForIndex(i) {
+    return { r: Math.floor(i / 8), c: i % 8 };
+  }
+
+  function indexForCoords(r, c) {
+    return r * 8 + c;
+  }
+
+  function render(currentGame) {
+    const state = currentGame.state;
     rootEl.innerHTML = '';
-    lastMove = game.state.lastMove || null;
+    lastMove = state.lastMove || null;
     const order = [];
-    for (let r=0;r<8;r++) for (let c=0;c<8;c++) order.push({r,c});
+    for (let r = 0; r < 8; r += 1) {
+      for (let c = 0; c < 8; c += 1) order.push({ r, c });
+    }
     if (perspective === 'b') order.reverse();
-    for (const {r,c} of order) {
-      const i = indexForCoords(r,c);
+    for (const { r, c } of order) {
       const sq = document.createElement('div');
       const isLight = (r + c) % 2 === 0;
       sq.className = `square ${isLight ? 'light' : 'dark'}`;
       sq.setAttribute('role', 'gridcell');
-      sq.dataset.r = r; sq.dataset.c = c;
-      const p = pieceAt(game.state.board, r, c);
+      sq.dataset.r = r;
+      sq.dataset.c = c;
+      const p = pieceAt(state.board, r, c);
       if (p) {
         const span = document.createElement('span');
         span.className = 'piece';
@@ -37,56 +62,82 @@ export function createBoardUI(rootEl, game, { onUserMove }) {
         sq.appendChild(span);
       }
       if (selected && selected.r === r && selected.c === c) sq.classList.add('highlight');
-      if (lastMove && ((lastMove.from.r===r&&lastMove.from.c===c) || (lastMove.to.r===r&&lastMove.to.c===c))) sq.classList.add('last-move');
-      const key = `${r},${c}`;
-      if (legalTargets.has(key)) sq.classList.add('legal');
+      if (
+        lastMove &&
+        ((lastMove.from.r === r && lastMove.from.c === c) ||
+          (lastMove.to.r === r && lastMove.to.c === c))
+      ) {
+        sq.classList.add('last-move');
+      }
+      if (legalTargets.has(`${r},${c}`)) sq.classList.add('legal');
       sq.addEventListener('click', onSquareClick);
       rootEl.appendChild(sq);
     }
+  }
+
+  function selectSquare(r, c, piece) {
+    if (!piece) return false;
+    const isWhite = piece === piece.toUpperCase();
+    const color = isWhite ? 'w' : 'b';
+    const isTurn = game.state.turn === color;
+    const isPlayerPiece = playerSide ? playerSide === color : false;
+
+    if (!isTurn && !isPlayerPiece) return false;
+    selected = { r, c };
+    legalTargets.clear();
+    if (isTurn) {
+      const moves = generateLegalMoves(game.state);
+      for (const m of moves) {
+        if (m.from.r === r && m.from.c === c) legalTargets.add(`${m.to.r},${m.to.c}`);
+      }
+    }
+    render(game);
+    return true;
   }
 
   function onSquareClick(e) {
     const r = parseInt(e.currentTarget.dataset.r, 10);
     const c = parseInt(e.currentTarget.dataset.c, 10);
     const p = pieceAt(game.state.board, r, c);
+
     if (!selected) {
-      // Select only if piece belongs to side to move
-      if (!p) return;
-      const isWhite = p === p.toUpperCase();
-      if ((game.state.turn === 'w' && !isWhite) || (game.state.turn === 'b' && isWhite)) return;
-      selected = { r, c };
-      populateLegalTargets();
+      selectSquare(r, c, p);
+      return;
+    }
+
+    if (selected.r === r && selected.c === c) {
+      selected = null;
+      legalTargets.clear();
       render(game);
       return;
-    } else {
-      if (selected.r === r && selected.c === c) {
-        selected = null; legalTargets.clear(); render(game); return;
+    }
+
+    const key = `${r},${c}`;
+    if (legalTargets.has(key)) {
+      const moves = generateLegalMoves(game.state);
+      const match = moves.find(
+        (m) =>
+          m.from.r === selected.r &&
+          m.from.c === selected.c &&
+          m.to.r === r &&
+          m.to.c === c &&
+          (!m.promotion || m.promotion === 'Q'),
+      );
+      if (match) {
+        onUserMove?.(match);
+        selected = null;
+        legalTargets.clear();
+        return;
       }
-      const key = `${r},${c}`;
-      if (legalTargets.has(key)) {
-        const moves = generateLegalMoves(game.state);
-        const match = moves.find(m => m.from.r===selected.r && m.from.c===selected.c && m.to.r===r && m.to.c===c && (!m.promotion || m.promotion==='Q'));
-        // For now, auto-queen promotions; could add UI later
-        if (match) {
-          onUserMove(match);
-          selected = null; legalTargets.clear();
-          return;
-        }
-      }
-      // Reselect if clicking own piece
-      const own = p && ((game.state.turn === 'w' && p === p.toUpperCase()) || (game.state.turn === 'b' && p === p.toLowerCase()));
-      if (own) { selected = { r, c }; populateLegalTargets(); render(game); return; }
-      selected = null; legalTargets.clear(); render(game);
+    }
+
+    if (!selectSquare(r, c, p)) {
+      selected = null;
+      legalTargets.clear();
+      render(game);
     }
   }
 
-  function populateLegalTargets() {
-    legalTargets.clear();
-    if (!selected) return;
-    const moves = generateLegalMoves(game.state);
-    for (const m of moves) if (m.from.r===selected.r && m.from.c===selected.c) legalTargets.add(`${m.to.r},${m.to.c}`);
-  }
-
-  return { render, setPerspective };
+  return { render, setPerspective, setPlayerSide };
 }
 
