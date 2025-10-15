@@ -1,4 +1,5 @@
 ﻿import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra } from '../chess/rules.js';
+let aggressionFactor = 0.25;
 
 const PIECE_VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 };
 
@@ -164,7 +165,7 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
 self.addEventListener('message', (event) => {
   const { data } = event;
   if (!data || data.type !== 'analyze') return;
-  const { state, side, depth = 2, timeLimitMs = 10_000, sampleWindowMs = timeLimitMs, mode = 'search' } = data;
+  const { state, side, depth = 2, timeLimitMs = 10_000, sampleWindowMs = timeLimitMs, mode = 'search', sacrificeBias = 0.25 } = data;\n  aggressionFactor = Math.max(0, Math.min(1, sacrificeBias));
   if (mode === 'random') {
     runRandomSampling(state, side, sampleWindowMs);
     return;
@@ -208,3 +209,6 @@ self.addEventListener('message', (event) => {
     elapsed: performance.now() - start,
   });
 });
+
+
+

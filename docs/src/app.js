@@ -29,9 +29,10 @@ function init() {
   let game;
   let bot;
   let playerSide = 'w';
-  let botThinking = false;
+  let botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));\n    botThinking = false;
   let botModeSetting = 'search';
   let botBudgetMs = BOT_MOVE_TIME_MS;
+  let botAggression = 0.25;
   const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 320 });
 
   const setStatus = (text) => {
@@ -99,7 +100,7 @@ function init() {
         depth: BOT_DEPTH,
         timeMs: timeBudget,
         sampleWindowMs: timeBudget,
-        onUpdate: handleUpdate,
+        onUpdate: handleUpdate,\n        sacrificeBias: botAggression,
       });
 
       if (move) {
@@ -113,7 +114,7 @@ function init() {
       setStatus('Bot move failed - you win by error');
       analysisDisplay.clear({ infoText: 'Bot encountered an error.' });
     } finally {
-      botThinking = false;
+      botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));\n    botThinking = false;
       if (!game.getResult()) {
         setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
       }
@@ -126,14 +127,14 @@ function init() {
     }
   };
 
-  const startNewGame = ({ side, mode, sampleSeconds }) => {
+  const startNewGame = ({ side, mode, sampleSeconds, sacrificeValue }) => {
     if (bot) bot.dispose();
 
     playerSide = side;
     botModeSetting = mode;
     const seconds = Number.isFinite(sampleSeconds) ? sampleSeconds : DEFAULT_SAMPLE_SECONDS;
     botBudgetMs = Math.max(1, Math.min(30, seconds)) * 1000;
-    botThinking = false;
+    botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));\n    botThinking = false;
 
     game = createGame();
     bot = new Bot(playerSide === 'w' ? 'b' : 'w');
@@ -163,6 +164,26 @@ function init() {
     maybeBotMove();
   };
 
+  const sacrificeSlider = form.elements.namedItem('sacrificeBias');
+  const sacrificeLabel = document.getElementById('sacrificeLabel');
+
+  const describeAggression = (value) => {
+    if (value <= 5) return 'None';
+    if (value <= 20) return 'Light';
+    if (value <= 45) return 'Moderate';
+    if (value <= 70) return 'Bold';
+    return 'Reckless';
+  };
+
+  if (sacrificeSlider && sacrificeLabel) {
+    const syncLabel = () => {
+      const value = Number.parseInt(sacrificeSlider.value, 10) || 0;
+      sacrificeLabel.textContent = describeAggression(value);
+    };
+    sacrificeSlider.addEventListener('input', syncLabel);
+    syncLabel();
+  }
+
   newGameBtn.addEventListener('click', () => dlg.showModal());
 
   startGameBtn.addEventListener('click', (event) => {
@@ -173,7 +194,9 @@ function init() {
     const mode = modeInput ? modeInput.value : 'search';
     const secondsInput = form.elements.namedItem('sampleSeconds');
     const sampleSeconds = secondsInput ? parseFloat(secondsInput.value) : DEFAULT_SAMPLE_SECONDS;
-    startNewGame({ side: side || 'w', mode, sampleSeconds });
+    const sacrificeInput = form.elements.namedItem('sacrificeBias');
+    const sacrificeValue = sacrificeInput ? parseFloat(sacrificeInput.value) : 25;
+    startNewGame({ side: side || 'w', mode, sampleSeconds, sacrificeValue });
   });
 
   resignBtn.addEventListener('click', () => {
@@ -192,3 +215,5 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+

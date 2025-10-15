@@ -1,4 +1,4 @@
-const WORKER_URL = new URL('./bot.worker.js', import.meta.url);
+﻿const WORKER_URL = new URL('./bot.worker.js', import.meta.url);
 
 function serializeState(state) {
   return {
@@ -29,13 +29,7 @@ export class Bot {
     } else {
       config = options || {};
     }
-    const {
-      mode = 'search',
-      depth = 2,
-      timeMs = 10_000,
-      sampleWindowMs = timeMs,
-      onUpdate,
-    } = config;
+    const {\n      mode = 'search',\n      depth = 2,\n      timeMs = 10_000,\n      sampleWindowMs = timeMs,\n      sacrificeBias = 0.25,\n      onUpdate,\n    } = config;
 
     const statePayload = serializeState(game.state);
     return new Promise((resolve, reject) => {
@@ -77,7 +71,7 @@ export class Bot {
         side: this.side,
         depth,
         timeLimitMs: timeMs,
-        sampleWindowMs,
+        sampleWindowMs,\n        sacrificeBias,
       });
     });
   }
@@ -89,4 +83,5 @@ export class Bot {
     }
   }
 }
+
 
