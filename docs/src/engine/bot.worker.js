@@ -1,4 +1,4 @@
-import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra } from '../chess/rules.js';
+﻿import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra } from '../chess/rules.js';
 
 let aggressionFactor = 0.25;
 
@@ -147,7 +147,7 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
   let samples = 0;
   const window = Math.max(0, sampleWindowMs);
 
-  do {
+  while (true) {
     const move = legal[Math.floor(Math.random() * legal.length)];
     const sampleState = cloneState(baseClone);
     makeMove(sampleState, move, { skipResult: true });
@@ -168,7 +168,8 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
       bestMove = move;
     }
     if (elapsed >= window) break;
-  } while (true);
+    if (window === 0 && samples >= 1) break;
+  }
 
   self.postMessage({
     type: 'result',
@@ -181,63 +182,74 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
   });
 }
 
+function reportError(err) {
+  self.postMessage({
+    type: 'error',
+    message: err?.message || String(err),
+    stack: err?.stack || null,
+  });
+}
+
 self.addEventListener('message', (event) => {
-  const { data } = event;
-  if (!data || data.type !== 'analyze') return;
+  try {
+    const { data } = event;
+    if (!data || data.type !== 'analyze') return;
 
-  const {
-    state,
-    side,
-    depth = 2,
-    timeLimitMs = 10000,
-    sampleWindowMs = timeLimitMs,
-    mode = 'search',
-    sacrificeBias = 0.25,
-  } = data;
+    const {
+      state,
+      side,
+      depth = 2,
+      timeLimitMs = 10000,
+      sampleWindowMs = timeLimitMs,
+      mode = 'search',
+      sacrificeBias = 0.25,
+    } = data;
 
-  aggressionFactor = clamp01(sacrificeBias);
+    aggressionFactor = clamp01(sacrificeBias);
 
-  if (mode === 'random') {
-    runRandomSampling(state, side, sampleWindowMs);
-    return;
-  }
-
-  const start = performance.now();
-  let bestMove = null;
-  let bestLine = [];
-  let bestScoreValue = null;
-  let currentDepth = Math.max(1, depth);
-
-  while (currentDepth <= depth + 1) {
-    const searchState = cloneState(state);
-    const result = minimax(searchState, currentDepth, -Infinity, Infinity, side, start, timeLimitMs);
-    if (result.move) {
-      bestMove = result.move;
-      bestLine = result.line && result.line.length ? result.line : [result.move];
-      bestScoreValue = result.score;
+    if (mode === 'random') {
+      runRandomSampling(state, side, sampleWindowMs);
+      return;
     }
+
+    const start = performance.now();
+    let bestMove = null;
+    let bestLine = [];
+    let bestScoreValue = null;
+    let currentDepth = Math.max(1, depth);
+
+    while (currentDepth <= depth + 1) {
+      const searchState = cloneState(state);
+      const result = minimax(searchState, currentDepth, -Infinity, Infinity, side, start, timeLimitMs);
+      if (result.move) {
+        bestMove = result.move;
+        bestLine = result.line && result.line.length ? result.line : [result.move];
+        bestScoreValue = result.score;
+      }
+      self.postMessage({
+        type: 'pv',
+        depth: currentDepth,
+        line: result.line && result.line.length ? result.line : (result.move ? [result.move] : []),
+        currentMove: moveToNotation(result.line && result.line.length ? result.line[0] : result.move),
+        lineNotation: (result.line || []).map(moveToNotation),
+        score: result.score,
+        elapsed: performance.now() - start,
+      });
+      if (result.timedOut) break;
+      currentDepth += 1;
+      if (timeLimitMs && performance.now() - start > timeLimitMs) break;
+    }
+
     self.postMessage({
-      type: 'pv',
-      depth: currentDepth,
-      line: result.line && result.line.length ? result.line : (result.move ? [result.move] : []),
-      currentMove: moveToNotation(result.line && result.line.length ? result.line[0] : result.move),
-      lineNotation: (result.line || []).map(moveToNotation),
-      score: result.score,
+      type: 'result',
+      move: bestMove,
+      line: bestLine,
+      moveNotation: moveToNotation(bestMove),
+      lineNotation: bestLine.map(moveToNotation),
+      score: bestScoreValue ?? 0,
       elapsed: performance.now() - start,
     });
-    if (result.timedOut) break;
-    currentDepth += 1;
-    if (timeLimitMs && performance.now() - start > timeLimitMs) break;
+  } catch (err) {
+    reportError(err);
   }
-
-  self.postMessage({
-    type: 'result',
-    move: bestMove,
-    line: bestLine,
-    moveNotation: moveToNotation(bestMove),
-    lineNotation: bestLine.map(moveToNotation),
-    score: bestScoreValue ?? 0,
-    elapsed: performance.now() - start,
-  });
 });
-
