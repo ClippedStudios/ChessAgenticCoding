@@ -42,6 +42,11 @@
           <label><input type="radio" name="side" value="w" checked /> White</label>
           <label><input type="radio" name="side" value="b" /> Black</label>
         </div>
+        <label for="botStyle">Bot style</label>
+        <select id="botStyle" name="botStyle">
+          <option value="strategic" selected>Strategic (deeper)</option>
+          <option value="fast">Fast (responsive)</option>
+        </select>
         <label for="sampleSeconds">Think time (seconds)</label>
         <input
           id="sampleSeconds"
@@ -51,6 +56,16 @@
           max="30"
           value="6"
         />
+        <label for="botDepth">Strategic depth</label>
+        <input
+          id="botDepth"
+          name="botDepth"
+          type="number"
+          min="1"
+          max="5"
+          value="3"
+        />
+        <small id="depthHint">Used only for the strategic bot.</small>
         <label for="sacrificeBias">Sacrifice preference</label>
         <input
           id="sacrificeBias"
