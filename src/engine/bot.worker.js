@@ -1,184 +1,794 @@
-﻿import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra, pieceAt } from '../chess/rules.js';
+import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra, pieceAt } from '../chess/rules.js';
 
-let aggressionFactor = 0.25;
 let stopRequested = false;
+let aggressionFactor = 0.25;
 
-const PIECE_VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 };
+const PIECE_VALUES = { P: 100, N: 325, B: 330, R: 500, Q: 950, K: 20000 };
+const PIECE_PHASE = { P: 0, N: 1, B: 1, R: 2, Q: 4, K: 0 };
 
-const PIECE_TAG = {
-  P: 'pawn',
-  N: 'minor',
-  B: 'minor',
-  R: 'rook',
-  Q: 'queen',
-  K: 'king',
-  p: 'pawn',
-  n: 'minor',
-  b: 'minor',
-  r: 'rook',
-  q: 'queen',
-  k: 'king',
-};
+const KNIGHT_OFFSETS = [
+  [-2, -1],
+  [-2, 1],
+  [-1, -2],
+  [-1, 2],
+  [1, -2],
+  [1, 2],
+  [2, -1],
+  [2, 1],
+];
+
+const BISHOP_DIRS = [
+  [-1, -1],
+  [-1, 1],
+  [1, -1],
+  [1, 1],
+];
+
+const ROOK_DIRS = [
+  [-1, 0],
+  [1, 0],
+  [0, -1],
+  [0, 1],
+];
+
+const KING_DIRS = [
+  [-1, -1],
+  [-1, 0],
+  [-1, 1],
+  [0, -1],
+  [0, 1],
+  [1, -1],
+  [1, 0],
+  [1, 1],
+];
+
+const CENTER_SQUARES = [
+  { r: 3, c: 3 },
+  { r: 3, c: 4 },
+  { r: 4, c: 3 },
+  { r: 4, c: 4 },
+];
+
+const EXTENDED_CENTER = [
+  { r: 2, c: 2 },
+  { r: 2, c: 3 },
+  { r: 2, c: 4 },
+  { r: 2, c: 5 },
+  { r: 3, c: 2 },
+  { r: 3, c: 5 },
+  { r: 4, c: 2 },
+  { r: 4, c: 5 },
+  { r: 5, c: 2 },
+  { r: 5, c: 3 },
+  { r: 5, c: 4 },
+  { r: 5, c: 5 },
+];
+
+const KING_ZONE_EXTENTS = [
+  { dr: -2, dc: -2 },
+  { dr: -2, dc: -1 },
+  { dr: -2, dc: 0 },
+  { dr: -2, dc: 1 },
+  { dr: -2, dc: 2 },
+  { dr: -1, dc: -2 },
+  { dr: -1, dc: 2 },
+  { dr: 0, dc: -2 },
+  { dr: 0, dc: 2 },
+  { dr: 1, dc: -2 },
+  { dr: 1, dc: 2 },
+  { dr: 2, dc: -2 },
+  { dr: 2, dc: -1 },
+  { dr: 2, dc: 0 },
+  { dr: 2, dc: 1 },
+  { dr: 2, dc: 2 },
+];
+
+const MAX_KILLERS = 2;
+const NEG_INF = -1_000_000_000;
+const POS_INF = 1_000_000_000;
+const PV_UPDATE_INTERVAL_MS = 140;
 
 function clamp01(value) {
+  if (Number.isNaN(value)) return 0;
   return Math.max(0, Math.min(1, value));
 }
 
-function baseEvaluation(state) {
-  let score = 0;
-  const board = state.board;
-  for (let r = 0; r < 8; r += 1) {
-    for (let c = 0; c < 8; c += 1) {
-      const piece = board[r][c];
+function squareIndex(r, c) {
+  return r * 8 + c;
+}
+
+function mirrorIndex(index) {
+  const rank = Math.floor(index / 8);
+  const file = index % 8;
+  return (7 - rank) * 8 + file;
+}
+
+const PST_MG = {
+  P: [
+    0, 5, 5, 0, 0, 5, 5, 0,
+    20, 20, 15, 10, 10, 15, 20, 20,
+    6, 6, 8, 20, 20, 8, 6, 6,
+    4, 4, 10, 25, 25, 10, 4, 4,
+    0, 0, 0, 20, 20, 0, 0, 0,
+    6, -2, -4, 10, 10, -4, -2, 6,
+    6, 8, 8, -8, -8, 8, 8, 6,
+    0, 0, 0, 0, 0, 0, 0, 0,
+  ],
+  N: [
+    -50, -40, -30, -30, -30, -30, -40, -50,
+    -40, -20, 0, 5, 5, 0, -20, -40,
+    -30, 5, 10, 15, 15, 10, 5, -30,
+    -30, 0, 15, 20, 20, 15, 0, -30,
+    -30, 5, 15, 20, 20, 15, 5, -30,
+    -30, 0, 10, 15, 15, 10, 0, -30,
+    -40, -20, 0, 0, 0, 0, -20, -40,
+    -50, -40, -30, -30, -30, -30, -40, -50,
+  ],
+  B: [
+    -20, -10, -10, -10, -10, -10, -10, -20,
+    -10, 0, 0, 0, 0, 0, 0, -10,
+    -10, 0, 5, 10, 10, 5, 0, -10,
+    -10, 5, 5, 10, 10, 5, 5, -10,
+    -10, 0, 10, 10, 10, 10, 0, -10,
+    -10, 10, 10, 10, 10, 10, 10, -10,
+    -10, 5, 0, 0, 0, 0, 5, -10,
+    -20, -10, -10, -10, -10, -10, -10, -20,
+  ],
+  R: [
+    0, 0, 0, 10, 10, 0, 0, 0,
+    0, 5, 5, 10, 10, 5, 5, 0,
+    0, 0, 0, 10, 10, 0, 0, 0,
+    0, 0, 0, 10, 10, 0, 0, 0,
+    0, 0, 0, 10, 10, 0, 0, 0,
+    0, 0, 0, 10, 10, 0, 0, 0,
+    5, 5, 5, 15, 15, 5, 5, 5,
+    0, 0, 0, 10, 10, 0, 0, 0,
+  ],
+  Q: [
+    -10, -5, -5, 0, 0, -5, -5, -10,
+    -5, 0, 0, 0, 0, 0, 0, -5,
+    -5, 0, 5, 5, 5, 5, 0, -5,
+    0, 0, 5, 5, 5, 5, 0, 0,
+    -5, 0, 5, 5, 5, 5, 0, -5,
+    -5, 0, 5, 5, 5, 5, 0, -5,
+    -5, 0, 0, 0, 0, 0, 0, -5,
+    -10, -5, -5, -5, -5, -5, -5, -10,
+  ],
+  K: [
+    30, 40, 40, 0, 0, 30, 40, 30,
+    20, 30, 20, 0, 0, 20, 30, 20,
+    10, 15, 10, 0, 0, 10, 15, 10,
+    0, 0, 0, -5, -5, 0, 0, 0,
+    -10, -10, -15, -20, -20, -15, -10, -10,
+    -20, -20, -25, -30, -30, -25, -20, -20,
+    -30, -30, -35, -40, -40, -35, -30, -30,
+    -40, -40, -45, -50, -50, -45, -40, -40,
+  ],
+};
+
+const PST_EG = {
+  P: [
+    0, 0, 0, 5, 5, 0, 0, 0,
+    10, 10, 10, 15, 15, 10, 10, 10,
+    4, 4, 8, 20, 20, 8, 4, 4,
+    0, 0, 12, 24, 24, 12, 0, 0,
+    -4, -4, 10, 20, 20, 10, -4, -4,
+    -10, -10, 0, 10, 10, 0, -10, -10,
+    -10, -10, -10, -20, -20, -10, -10, -10,
+    0, 0, 0, 0, 0, 0, 0, 0,
+  ],
+  N: [
+    -40, -20, -10, -5, -5, -10, -20, -40,
+    -20, 0, 5, 10, 10, 5, 0, -20,
+    -15, 5, 10, 15, 15, 10, 5, -15,
+    -10, 10, 15, 20, 20, 15, 10, -10,
+    -10, 5, 15, 20, 20, 15, 5, -10,
+    -15, 5, 10, 15, 15, 10, 5, -15,
+    -20, 0, 5, 10, 10, 5, 0, -20,
+    -40, -20, -10, -5, -5, -10, -20, -40,
+  ],
+  B: [
+    -20, -10, -10, -10, -10, -10, -10, -20,
+    -10, 0, 0, 0, 0, 0, 0, -10,
+    -10, 0, 10, 15, 15, 10, 0, -10,
+    -10, 10, 15, 20, 20, 15, 10, -10,
+    -10, 10, 15, 20, 20, 15, 10, -10,
+    -10, 0, 10, 15, 15, 10, 0, -10,
+    -10, 5, 0, 0, 0, 0, 5, -10,
+    -20, -10, -10, -10, -10, -10, -10, -20,
+  ],
+  R: [
+    0, 0, 5, 10, 10, 5, 0, 0,
+    0, 5, 15, 15, 15, 15, 5, 0,
+    0, 5, 10, 20, 20, 10, 5, 0,
+    0, 5, 10, 20, 20, 10, 5, 0,
+    0, 5, 10, 20, 20, 10, 5, 0,
+    0, 5, 10, 15, 15, 10, 5, 0,
+    5, 10, 10, 20, 20, 10, 10, 5,
+    10, 10, 15, 20, 20, 15, 10, 10,
+  ],
+  Q: [
+    -20, -10, -10, -5, -5, -10, -10, -20,
+    -10, 0, 0, 0, 0, 0, 0, -10,
+    -10, 0, 5, 5, 5, 5, 0, -10,
+    -5, 0, 5, 5, 5, 5, 0, -5,
+    -5, 0, 5, 5, 5, 5, 0, -5,
+    -10, 0, 5, 5, 5, 5, 0, -10,
+    -10, 0, 0, 0, 0, 0, 0, -10,
+    -20, -10, -10, -5, -5, -10, -10, -20,
+  ],
+  K: [
+    -30, -20, -10, -10, -10, -10, -20, -30,
+    -10, 0, 10, 10, 10, 10, 0, -10,
+    0, 10, 20, 20, 20, 20, 10, 0,
+    0, 10, 20, 25, 25, 20, 10, 0,
+    0, 10, 20, 25, 25, 20, 10, 0,
+    0, 10, 15, 20, 20, 15, 10, 0,
+    -10, 0, 10, 10, 10, 10, 0, -10,
+    -30, -10, 0, 0, 0, 0, -10, -30,
+  ],
+};
+
+function sideOfPiece(piece) {
+  if (!piece) return null;
+  return piece === piece.toUpperCase() ? 'w' : 'b';
+}
+
+function isOnHomeSquare(type, side, r, c) {
+  if (type === 'N') {
+    if (side === 'w') return r === 7 && (c === 1 || c === 6);
+    return r === 0 && (c === 1 || c === 6);
+  }
+  if (type === 'B') {
+    if (side === 'w') return r === 7 && (c === 2 || c === 5);
+    return r === 0 && (c === 2 || c === 5);
+  }
+  if (type === 'Q') {
+    if (side === 'w') return r === 7 && c === 3;
+    return r === 0 && c === 3;
+  }
+  if (type === 'R') {
+    if (side === 'w') return r === 7 && (c === 0 || c === 7);
+    return r === 0 && (c === 0 || c === 7);
+  }
+  if (type === 'K') {
+    if (side === 'w') return r === 7 && c === 4;
+    return r === 0 && c === 4;
+  }
+  return false;
+}
+
+function attacksOnSquare(state, target, side) {
+  const { board } = state;
+  const { r, c } = target;
+  let count = 0;
+  let weight = 0;
+  let minValue = Infinity;
+
+  const pawnRow = r + (side === 'w' ? 1 : -1);
+  if (pawnRow >= 0 && pawnRow < 8) {
+    for (const dc of [-1, 1]) {
+      const cc = c + dc;
+      if (cc < 0 || cc > 7) continue;
+      const pawn = board[pawnRow][cc];
+      if (pawn && (side === 'w' ? pawn === 'P' : pawn === 'p')) {
+        count += 1;
+        weight += PIECE_VALUES.P;
+        if (PIECE_VALUES.P < minValue) minValue = PIECE_VALUES.P;
+      }
+    }
+  }
+
+  for (const [dr, dc] of KNIGHT_OFFSETS) {
+    const rr = r + dr;
+    const cc = c + dc;
+    if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+    const knight = board[rr][cc];
+    if (knight && (side === 'w' ? knight === 'N' : knight === 'n')) {
+      count += 1;
+      weight += PIECE_VALUES.N;
+      if (PIECE_VALUES.N < minValue) minValue = PIECE_VALUES.N;
+    }
+  }
+
+  const diagMatch = side === 'w'
+    ? (p) => p === 'B' || p === 'Q'
+    : (p) => p === 'b' || p === 'q';
+  for (const [dr, dc] of BISHOP_DIRS) {
+    let rr = r + dr;
+    let cc = c + dc;
+    while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) {
+      const piece = board[rr][cc];
+      if (piece) {
+        if (diagMatch(piece)) {
+          const value = PIECE_VALUES[piece.toUpperCase()];
+          count += 1;
+          weight += value;
+          if (value < minValue) minValue = value;
+        }
+        break;
+      }
+      rr += dr;
+      cc += dc;
+    }
+  }
+
+  const lineMatch = side === 'w'
+    ? (p) => p === 'R' || p === 'Q'
+    : (p) => p === 'r' || p === 'q';
+  for (const [dr, dc] of ROOK_DIRS) {
+    let rr = r + dr;
+    let cc = c + dc;
+    while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) {
+      const piece = board[rr][cc];
+      if (piece) {
+        if (lineMatch(piece)) {
+          const value = PIECE_VALUES[piece.toUpperCase()];
+          count += 1;
+          weight += value;
+          if (value < minValue) minValue = value;
+        }
+        break;
+      }
+      rr += dr;
+      cc += dc;
+    }
+  }
+
+  for (const [dr, dc] of KING_DIRS) {
+    const rr = r + dr;
+    const cc = c + dc;
+    if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+    const king = board[rr][cc];
+    if (king && (side === 'w' ? king === 'K' : king === 'k')) {
+      count += 1;
+      weight += PIECE_VALUES.K;
+      if (PIECE_VALUES.K < minValue) minValue = PIECE_VALUES.K;
+    }
+  }
+
+  return {
+    count,
+    weight,
+    minValue: minValue === Infinity ? 0 : minValue,
+  };
+}
+
+function mobilityFrom(state, r, c, type, side) {
+  const { board } = state;
+  let moves = 0;
+
+  if (type === 'N') {
+    for (const [dr, dc] of KNIGHT_OFFSETS) {
+      const rr = r + dr;
+      const cc = c + dc;
+      if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+      const target = board[rr][cc];
+      if (!target || sideOfPiece(target) !== side) moves += 1;
+    }
+    return moves;
+  }
+
+  if (type === 'B' || type === 'R' || type === 'Q') {
+    const dirs = type === 'B' ? BISHOP_DIRS : type === 'R' ? ROOK_DIRS : [...BISHOP_DIRS, ...ROOK_DIRS];
+    for (const [dr, dc] of dirs) {
+      let rr = r + dr;
+      let cc = c + dc;
+      while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) {
+        const target = board[rr][cc];
+        if (!target) {
+          moves += 1;
+        } else {
+          if (sideOfPiece(target) !== side) moves += 1;
+          break;
+        }
+        rr += dr;
+        cc += dc;
+      }
+    }
+    return moves;
+  }
+
+  if (type === 'K') {
+    for (const [dr, dc] of KING_DIRS) {
+      const rr = r + dr;
+      const cc = c + dc;
+      if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+      const target = board[rr][cc];
+      if (!target || sideOfPiece(target) !== side) moves += 1;
+    }
+    return moves;
+  }
+
+  if (type === 'P') {
+    const dir = side === 'w' ? -1 : 1;
+    const rr = r + dir;
+    if (rr >= 0 && rr < 8) {
+      if (!board[rr][c]) moves += 1;
+      for (const dc of [-1, 1]) {
+        const cc = c + dc;
+        if (cc < 0 || cc > 7) continue;
+        const target = board[rr][cc];
+        if (target && sideOfPiece(target) !== side) moves += 1;
+      }
+    }
+  }
+
+  return moves;
+}
+
+function isPassedPawn(board, r, c, side) {
+  const dir = side === 'w' ? -1 : 1;
+  for (let rr = r + dir; rr >= 0 && rr < 8; rr += dir) {
+    for (let dc = -1; dc <= 1; dc += 1) {
+      const cc = c + dc;
+      if (cc < 0 || cc > 7) continue;
+      const piece = board[rr][cc];
       if (!piece) continue;
-      const value = PIECE_VALUES[piece.toUpperCase()] || 0;
-      score += piece === piece.toUpperCase() ? value : -value;
+      if (side === 'w') {
+        if (piece === piece.toLowerCase() && piece === 'p') return false;
+      } else if (piece === piece.toUpperCase() && piece === 'P') {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function pawnShield(board, kingPos, side) {
+  if (!kingPos) return 0;
+  const { r, c } = kingPos;
+  const dir = side === 'w' ? -1 : 1;
+  let score = 0;
+
+  for (const dc of [-1, 0, 1]) {
+    const rr1 = r + dir;
+    const cc1 = c + dc;
+    if (rr1 >= 0 && rr1 < 8 && cc1 >= 0 && cc1 < 8) {
+      const pawn = pieceAt(board, rr1, cc1);
+      if (side === 'w') {
+        if (pawn === 'P') score += 18;
+      } else if (pawn === 'p') {
+        score += 18;
+      }
+    }
+    const rr2 = r + dir * 2;
+    if (rr2 >= 0 && rr2 < 8 && cc1 >= 0 && cc1 < 8) {
+      const pawn = pieceAt(board, rr2, cc1);
+      if (side === 'w') {
+        if (pawn === 'P') score += 6;
+      } else if (pawn === 'p') {
+        score += 6;
+      }
     }
   }
   return score;
 }
 
-function mobilityCount(state, side) {
-  const temp = cloneState(state);
-  temp.turn = side;
-  return generateLegalMoves(temp).length;
-}
-
-function computeControl(state, side) {
-  const control = new Map();
-  const temp = cloneState(state);
-  temp.turn = side;
-  const moves = generateLegalMoves(temp);
-  for (const move of moves) {
-    const key = `${move.to.r},${move.to.c}`;
-    const arr = control.get(key);
-    const piece = pieceAt(state.board, move.from.r, move.from.c);
-    const value = PIECE_VALUES[piece.toUpperCase()] || 0;
-    const info = { value, piece };
-    if (arr) arr.push(info);
-    else control.set(key, [info]);
-  }
-  return control;
-}
-
-function materialPressure(controlMap) {
+function assessKingPressure(state, sideInfo, enemyInfo) {
+  const board = state.board;
   let pressure = 0;
-  controlMap.forEach((infos) => {
-    let total = 0;
-    for (const info of infos) total += info.value;
-    pressure += total;
-  });
-  return pressure;
-}
+  let safety = 0;
+  const enemyColor = enemyInfo.color;
 
-function defenderSummary(controlMap, key) {
-  const infos = controlMap.get(key) || [];
-  let total = 0;
-  for (const info of infos) total += info.value;
-  return { count: infos.length, totalValue: total };
-}
+  if (sideInfo.king) {
+    const target = sideInfo.king;
+    const incoming = attacksOnSquare(state, target, enemyColor);
+    const defenders = attacksOnSquare(state, target, sideInfo.color);
+    safety += pawnShield(board, sideInfo.king, sideInfo.color);
+    safety += defenders.weight * 0.08;
+    safety -= incoming.weight * 0.1 + incoming.count * 10;
 
-function evaluateExposure(state, side, defenders) {
-  let penalty = 0;
-  for (let r = 0; r < 8; r += 1) {
-    for (let c = 0; c < 8; c += 1) {
-      const piece = state.board[r][c];
-      if (!piece) continue;
-      const isWhite = piece === piece.toUpperCase();
-      const color = isWhite ? 'w' : 'b';
-      if (color !== side) continue;
-      if (piece.toUpperCase() === 'K') continue;
-      const value = PIECE_VALUES[piece.toUpperCase()] || 0;
-      if (!value) continue;
-      const key = `${r},${c}`;
-      const summary = defenderSummary(defenders, key);
-      if (summary.count === 0) penalty -= value * 0.35;
-      else if (summary.totalValue < value) penalty -= value * 0.15;
+    for (const [dr, dc] of KING_DIRS) {
+      const rr = target.r + dr;
+      const cc = target.c + dc;
+      if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+      const adj = attacksOnSquare(state, { r: rr, c: cc }, enemyColor);
+      safety -= adj.weight * 0.04;
+      if (adj.count > 0) safety -= 4;
     }
   }
-  return penalty;
-}
 
-function computeThreatScore(state, perspective, defenders) {
-  const enemy = perspective === 'w' ? 'b' : 'w';
-  const threatState = cloneState(state);
-  threatState.turn = enemy;
-  const enemyMoves = generateLegalMoves(threatState);
-  let threatScore = 0;
-
-  for (const move of enemyMoves) {
-    const captured = pieceAt(state.board, move.to.r, move.to.c);
-    if (captured) {
-      const value = PIECE_VALUES[captured.toUpperCase()] || 0;
-      if (value) {
-        const defended = defenderSummary(defenders, `${move.to.r},${move.to.c}`);
-        if (defended.count === 0) threatScore -= value * 1.1;
-        else if (defended.totalValue < value) threatScore -= value * 0.5;
-        else threatScore -= value * 0.25;
+  if (enemyInfo.king) {
+    const enemyKing = enemyInfo.king;
+    for (const [dr, dc] of KING_DIRS) {
+      const rr = enemyKing.r + dr;
+      const cc = enemyKing.c + dc;
+      if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+      const attackers = attacksOnSquare(state, { r: rr, c: cc }, sideInfo.color);
+      const defenders = attacksOnSquare(state, { r: rr, c: cc }, enemyColor);
+      if (attackers.count) {
+        pressure += Math.max(0, attackers.weight - defenders.weight * 0.7) * 0.2;
+        pressure += attackers.count * 4;
       }
     }
-
-    const replyState = cloneState(state);
-    makeMove(replyState, move, { skipResult: true });
-    if (inCheck(replyState, perspective)) {
-      const replies = mobilityCount(replyState, perspective);
-      if (replies === 0) threatScore -= 10000;
-      else threatScore -= 400;
+    const direct = attacksOnSquare(state, enemyKing, sideInfo.color);
+    if (direct.count) {
+      pressure += direct.weight * 0.4 + 18;
+    }
+    for (const delta of KING_ZONE_EXTENTS) {
+      const rr = enemyKing.r + delta.dr;
+      const cc = enemyKing.c + delta.dc;
+      if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+      const attackers = attacksOnSquare(state, { r: rr, c: cc }, sideInfo.color);
+      if (attackers.count) pressure += attackers.weight * 0.05;
     }
   }
 
-  return threatScore;
-}
-
-function evaluate(state, perspective) {
-  const material = baseEvaluation(state);
-  const perspectiveMaterial = perspective === 'w' ? material : -material;
-
-  const myMobility = mobilityCount(state, perspective);
-  const oppMobility = mobilityCount(state, perspective === 'w' ? 'b' : 'w');
-  const positionalDiff = myMobility - oppMobility;
-  const positionalScore = positionalDiff * 3;
-
-  const myControl = computeControl(state, perspective);
-  const oppControl = computeControl(state, perspective === 'w' ? 'b' : 'w');
-  const threatScore = computeThreatScore(state, perspective, myControl);
-  const exposurePenalty = evaluateExposure(state, perspective, myControl);
-
-  let sacrificeBonus = 0;
-  if (positionalDiff > 0 && perspectiveMaterial < 0) {
-    sacrificeBonus = aggressionFactor * Math.min(Math.abs(perspectiveMaterial), Math.abs(positionalDiff) * 40);
+  if (!sideInfo.hasCastled && sideInfo.phaseWeight > 0.6) {
+    safety -= 25;
   }
 
-  const pressureDiff = materialPressure(myControl) - materialPressure(oppControl);
+  return { pressure, safety };
+}
+
+function evaluateTactics(state, sideInfo, enemyInfo) {
+  const board = state.board;
+  const enemyColor = enemyInfo.color;
+  const side = sideInfo.color;
+  let score = 0;
+
+  for (const enemyPiece of enemyInfo.pieces) {
+    const attackers = attacksOnSquare(state, { r: enemyPiece.r, c: enemyPiece.c }, side);
+    if (!attackers.count) continue;
+    const defenders = attacksOnSquare(state, { r: enemyPiece.r, c: enemyPiece.c }, enemyColor);
+    const net = attackers.weight - defenders.weight;
+    if (net > 0) {
+      score += Math.min(enemyPiece.value, net) * 0.12 + 6;
+    }
+    if (attackers.count >= 2 && enemyPiece.value >= PIECE_VALUES.R) {
+      score += 10;
+    }
+  }
+
+  for (const piece of sideInfo.pieces) {
+    if (piece.type !== 'N' && piece.type !== 'B' && piece.type !== 'Q') continue;
+    let highValueTargets = 0;
+    if (piece.type === 'N') {
+      for (const [dr, dc] of KNIGHT_OFFSETS) {
+        const rr = piece.r + dr;
+        const cc = piece.c + dc;
+        if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+        const target = board[rr][cc];
+        if (!target) continue;
+        if (sideOfPiece(target) === enemyColor) {
+          const value = PIECE_VALUES[target.toUpperCase()];
+          if (value >= PIECE_VALUES.R) highValueTargets += 1;
+        }
+      }
+      if (highValueTargets >= 2) score += 18 + highValueTargets * 4;
+    } else {
+      for (const [dr, dc] of KING_DIRS) {
+        const rr = piece.r + dr;
+        const cc = piece.c + dc;
+        if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+        const target = board[rr][cc];
+        if (!target) continue;
+        if (sideOfPiece(target) === enemyColor) {
+          const value = PIECE_VALUES[target.toUpperCase()];
+          if (value >= PIECE_VALUES.R) highValueTargets += 1;
+        }
+      }
+      if (highValueTargets >= 2) score += 10;
+    }
+  }
+
+  if (enemyInfo.king && inCheck(state, enemyColor)) {
+    score += 30;
+  }
+
+  return score;
+}
+
+function assessCoordination(state, sideInfo) {
+  let coord = 0;
+  for (const piece of sideInfo.pieces) {
+    if (piece.type === 'P') continue;
+    const defenders = attacksOnSquare(state, { r: piece.r, c: piece.c }, sideInfo.color);
+    if (defenders.count) coord += defenders.count * 6;
+    else coord -= 6;
+  }
+  return coord;
+}
+
+function evaluatePawnStructure(state, sideInfo, enemyInfo) {
+  const board = state.board;
+  let score = 0;
+  for (let file = 0; file < 8; file += 1) {
+    const friendly = sideInfo.pawnFiles[file];
+    if (friendly > 1) score -= (friendly - 1) * 12;
+    if (friendly > 0) {
+      let isolated = true;
+      if (file > 0 && sideInfo.pawnFiles[file - 1] > 0) isolated = false;
+      if (file < 7 && sideInfo.pawnFiles[file + 1] > 0) isolated = false;
+      if (isolated) score -= 10;
+      else score += 4;
+    }
+    if (friendly === 0 && enemyInfo.pawnFiles[file] === 0) score += 2;
+  }
+  for (const pawn of sideInfo.pawns) {
+    if (isPassedPawn(board, pawn.r, pawn.c, sideInfo.color)) {
+      const advance = sideInfo.color === 'w' ? 6 - pawn.r : pawn.r - 1;
+      score += 18 + advance * 6;
+    }
+    const dir = sideInfo.color === 'w' ? -1 : 1;
+    const rr = pawn.r + dir;
+    if (rr >= 0 && rr < 8) {
+      const forward = pieceAt(board, rr, pawn.c);
+      if (forward && sideOfPiece(forward) !== sideInfo.color) score -= 6;
+    }
+  }
+  return score;
+}
+
+function evaluateCentralControl(state, sideInfo, enemyInfo) {
+  const board = state.board;
+  let score = 0;
+  for (const square of CENTER_SQUARES) {
+    const attacker = attacksOnSquare(state, square, sideInfo.color);
+    const defender = attacksOnSquare(state, square, enemyInfo.color);
+    if (attacker.count) score += attacker.weight * 0.12 + 6;
+    score -= defender.count * 2;
+    const piece = board[square.r][square.c];
+    if (piece && sideOfPiece(piece) === sideInfo.color) score += 10;
+  }
+  for (const square of EXTENDED_CENTER) {
+    const attacker = attacksOnSquare(state, square, sideInfo.color);
+    if (attacker.count) score += attacker.weight * 0.05;
+  }
+  return score;
+}
+
+function evaluateOpenFiles(sideInfo, enemyInfo) {
+  let score = 0;
+  for (const piece of sideInfo.pieces) {
+    if (piece.type !== 'R') continue;
+    const file = piece.c;
+    const friendly = sideInfo.pawnFiles[file];
+    const enemy = enemyInfo.pawnFiles[file];
+    if (friendly === 0) score += enemy === 0 ? 18 : 10;
+  }
+  return score;
+}
+
+function collectBoardInfo(state) {
+  const white = {
+    color: 'w',
+    material: 0,
+    mgPst: 0,
+    egPst: 0,
+    development: 0,
+    mobility: 0,
+    pawns: [],
+    pawnFiles: Array(8).fill(0),
+    king: null,
+    pieces: [],
+    hasCastled: false,
+    phaseWeight: 1,
+  };
+  const black = {
+    color: 'b',
+    material: 0,
+    mgPst: 0,
+    egPst: 0,
+    development: 0,
+    mobility: 0,
+    pawns: [],
+    pawnFiles: Array(8).fill(0),
+    king: null,
+    pieces: [],
+    hasCastled: false,
+    phaseWeight: 1,
+  };
+
+  const { board } = state;
+  let phaseScore = 0;
+
+  for (let r = 0; r < 8; r += 1) {
+    for (let c = 0; c < 8; c += 1) {
+      const piece = board[r][c];
+      if (!piece) continue;
+      const type = piece.toUpperCase();
+      const value = PIECE_VALUES[type] || 0;
+      const idx = squareIndex(r, c);
+      const side = piece === piece.toUpperCase() ? white : black;
+      const mirror = mirrorIndex(idx);
+      side.material += value;
+      side.mgPst += PST_MG[type][piece === piece.toUpperCase() ? idx : mirror];
+      side.egPst += PST_EG[type][piece === piece.toUpperCase() ? idx : mirror];
+      side.pieces.push({ type, r, c, value });
+      if (type === 'P') {
+        side.pawns.push({ r, c });
+        side.pawnFiles[c] += 1;
+      }
+      if (type === 'K') {
+        side.king = { r, c };
+        if (!isOnHomeSquare('K', side.color, r, c)) side.hasCastled = true;
+      }
+      if ((type === 'N' || type === 'B') && !isOnHomeSquare(type, side.color, r, c)) {
+        side.development += 14;
+      } else if ((type === 'N' || type === 'B') && side.phaseWeight > 0.6) {
+        side.development -= 6;
+      }
+      if (type === 'R' && !isOnHomeSquare(type, side.color, r, c) && side.phaseWeight > 0.4) {
+        side.development += 4;
+      }
+      if (type === 'Q' && !isOnHomeSquare(type, side.color, r, c) && side.phaseWeight > 0.5) {
+        side.development += 3;
+      }
+      side.mobility += mobilityFrom(state, r, c, type, side.color);
+      phaseScore += PIECE_PHASE[type];
+    }
+  }
+
+  const phaseMax = 24;
+  const mgWeight = Math.min(1, phaseScore / phaseMax);
+  const egWeight = 1 - mgWeight;
+  white.phaseWeight = mgWeight;
+  black.phaseWeight = mgWeight;
+
+  return { white, black, mgWeight, egWeight };
+}
+
+function evaluateWhitePerspective(state) {
+  const { white, black, mgWeight, egWeight } = collectBoardInfo(state);
+
+  const materialMg = (white.material + white.mgPst) - (black.material + black.mgPst);
+  const materialEg = (white.material + white.egPst) - (black.material + black.egPst);
+
+  const materialScore = materialMg * mgWeight + materialEg * egWeight;
+
+  const developmentScore = (white.development - black.development) * (0.8 * mgWeight);
+  const mobilityScore = (white.mobility - black.mobility) * 0.5;
+  const pawnStructureScore =
+    evaluatePawnStructure(state, white, black) - evaluatePawnStructure(state, black, white);
+  const centralControlScore =
+    evaluateCentralControl(state, white, black) - evaluateCentralControl(state, black, white);
+  const openFileScore = evaluateOpenFiles(white, black) - evaluateOpenFiles(black, white);
+  const coordinationScore = assessCoordination(state, white) - assessCoordination(state, black);
+
+  const whiteKP = assessKingPressure(state, white, black);
+  const blackKP = assessKingPressure(state, black, white);
+  const kingSafetyScore = (whiteKP.safety - blackKP.safety) * (0.7 * mgWeight + 0.3);
+  const attackPressureScore = (whiteKP.pressure - blackKP.pressure) * (1 + aggressionFactor * 0.7);
+
+  const tacticalScore =
+    evaluateTactics(state, white, black) - evaluateTactics(state, black, white);
+
+  const passedPawnScale = 0.6 + egWeight * 0.6;
+  const whitePassed = white.pawns.reduce(
+    (acc, pawn) => (isPassedPawn(state.board, pawn.r, pawn.c, 'w') ? acc + 1 : acc),
+    0,
+  );
+  const blackPassed = black.pawns.reduce(
+    (acc, pawn) => (isPassedPawn(state.board, pawn.r, pawn.c, 'b') ? acc + 1 : acc),
+    0,
+  );
+  const passedPawnScore = (whitePassed - blackPassed) * 22 * passedPawnScale;
+
+  const initiative =
+    (state.turn === 'w' ? 1 : -1) *
+    ((whiteKP.pressure - blackKP.pressure) * 0.15 + (white.mobility - black.mobility) * 0.1);
 
   return (
-    perspectiveMaterial +
-    positionalScore +
-    sacrificeBonus +
-    threatScore +
-    exposurePenalty +
-    pressureDiff * 0.02
+    materialScore +
+    developmentScore +
+    mobilityScore +
+    pawnStructureScore +
+    centralControlScore +
+    openFileScore +
+    coordinationScore +
+    kingSafetyScore +
+    attackPressureScore +
+    tacticalScore +
+    passedPawnScore +
+    initiative
   );
 }
 
-function quickEvaluate(state, perspective) {
-  const material = baseEvaluation(state);
-  const perspectiveMaterial = perspective === 'w' ? material : -material;
-  const myMobility = mobilityCount(state, perspective);
-  const oppMobility = mobilityCount(state, perspective === 'w' ? 'b' : 'w');
-  const positional = (myMobility - oppMobility) * 2;
-  const sacrificeBonus = perspectiveMaterial < 0 ? aggressionFactor * Math.min(Math.abs(perspectiveMaterial), Math.abs(positional)) : 0;
-  return perspectiveMaterial + positional + sacrificeBonus;
-}
-
-function orderMoves(moves) {
-  return moves
-    .slice()
-    .sort((a, b) => {
-      const av = (a.capture ? 1000 : 0) + (a.promotion ? 500 : 0);
-      const bv = (b.capture ? 1000 : 0) + (b.promotion ? 500 : 0);
-      return bv - av;
-    });
+function evaluateForTurn(state) {
+  const whiteScore = evaluateWhitePerspective(state);
+  return state.turn === 'w' ? whiteScore : -whiteScore;
 }
 
 function moveToNotation(move) {
@@ -189,123 +799,241 @@ function moveToNotation(move) {
   return `${from}${to}${promo}`;
 }
 
-function minimax(state, depth, alpha, beta, botSide, start, timeLimitMs) {
-  if (stopRequested || (timeLimitMs && performance.now() - start > timeLimitMs)) {
-    return { score: evaluate(state, botSide), move: null, line: [], timedOut: true };
+function moveKey(move) {
+  return `${move.from.r}${move.from.c}-${move.to.r}${move.to.c}-${move.promotion || ''}`;
+}
+
+function createSearchContext(botSide, timeLimitMs) {
+  const start = performance.now();
+  return {
+    botSide,
+    startTime: start,
+    deadline: timeLimitMs > 0 ? start + timeLimitMs : Infinity,
+    history: new Map(),
+    killers: Array.from({ length: 64 }, () => []),
+    lastPvPost: 0,
+    nodes: 0,
+    stopped: false,
+  };
+}
+
+function shouldStop(context) {
+  if (stopRequested) {
+    context.stopped = true;
+    return true;
+  }
+  if (performance.now() >= context.deadline) {
+    context.stopped = true;
+    return true;
+  }
+  return false;
+}
+
+function scoreMove(move, state, ply, context, principalKey) {
+  let score = 0;
+  if (principalKey && moveKey(move) === principalKey) score += 10000;
+  if (move.capture) {
+    const capturedValue = PIECE_VALUES[move.capture.toUpperCase()] || 0;
+    const mover = pieceAt(state.board, move.from.r, move.from.c);
+    const moverValue = mover ? PIECE_VALUES[mover.toUpperCase()] || 1 : 1;
+    score += 5000 + capturedValue * 10 - moverValue;
+  }
+  if (move.promotion) score += 4000;
+  const killers = context.killers[ply];
+  if (killers) {
+    if (killers[0] && moveKey(move) === killers[0]) score += 1200;
+    if (killers[1] && moveKey(move) === killers[1]) score += 800;
+  }
+  const historyKey = `${state.turn}:${move.from.r}${move.from.c}-${move.to.r}${move.to.c}`;
+  score += context.history.get(historyKey) || 0;
+  return score;
+}
+
+function orderMoves(moves, state, ply, context, principalKey) {
+  return moves
+    .slice()
+    .sort((a, b) => scoreMove(b, state, ply, context, principalKey) - scoreMove(a, state, ply, context, principalKey));
+}
+
+function updateKillers(context, ply, move) {
+  const killers = context.killers[ply];
+  if (!killers) return;
+  const key = moveKey(move);
+  if (killers[0] === key) return;
+  killers.unshift(key);
+  if (killers.length > MAX_KILLERS) killers.pop();
+}
+
+function updateHistory(context, state, move, depth) {
+  const key = `${state.turn}:${move.from.r}${move.from.c}-${move.to.r}${move.to.c}`;
+  const bonus = depth * depth;
+  context.history.set(key, (context.history.get(key) || 0) + bonus);
+}
+
+function isHangingQueenMove(state, move) {
+  if (move.capture || move.enPassant) return false;
+  const piece = pieceAt(state.board, move.from.r, move.from.c);
+  if (!piece || piece.toUpperCase() !== 'Q') return false;
+  const side = sideOfPiece(piece);
+  const next = cloneState(state);
+  makeMove(next, move, { skipResult: true });
+  const enemy = side === 'w' ? 'b' : 'w';
+  const attackers = attacksOnSquare(next, move.to, enemy);
+  if (!attackers.count) return false;
+  const defenders = attacksOnSquare(next, move.to, side);
+  if (defenders.count === 0 || attackers.weight > defenders.weight + PIECE_VALUES.Q * 0.5) return true;
+  return false;
+}
+
+function quiescence(state, alpha, beta, depth, context) {
+  if (shouldStop(context)) {
+    return { score: evaluateForTurn(state), line: [], timedOut: true };
   }
 
-  const moves = orderMoves(generateLegalMoves(state));
-  if (depth === 0 || moves.length === 0) {
-    if (moves.length === 0) {
-      if (inCheck(state, state.turn)) {
-        const mateScore = (state.turn === botSide ? -1 : 1) * 100000;
-        return { score: mateScore, move: null, line: [] };
-      }
-      return { score: 0, move: null, line: [] };
-    }
-    return { score: evaluate(state, botSide), move: null, line: [] };
-  }
+  const standPat = evaluateForTurn(state);
+  if (standPat >= beta) return { score: standPat, line: [] };
+  let currentAlpha = alpha;
+  if (standPat > currentAlpha) currentAlpha = standPat;
 
-  const maximizing = state.turn === botSide;
-  let bestScore = maximizing ? -Infinity : Infinity;
-  let bestMove = null;
+  const captures = generateLegalMoves(state).filter((m) => m.capture || m.enPassant || m.promotion);
+  if (!captures.length) return { score: standPat, line: [] };
+
+  const ordered = orderMoves(captures, state, depth, context, null);
+  let bestScore = standPat;
   let bestLine = [];
 
-  for (const move of moves) {
-    if (stopRequested) break;
+  for (const move of ordered) {
+    if (shouldStop(context)) return { score: bestScore, line: bestLine, timedOut: true };
     const next = cloneState(state);
     makeMove(next, move, { skipResult: true });
-    const child = minimax(next, depth - 1, alpha, beta, botSide, start, timeLimitMs);
-    if (child.timedOut) {
-      if (bestMove) {
-        return { score: bestScore, move: bestMove, line: bestLine, timedOut: true };
-      }
+    const child = quiescence(next, -beta, -currentAlpha, depth + 1, context);
+    if (child.timedOut) return { score: child.score, line: child.line, timedOut: true };
+    const score = -child.score;
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = [move, ...(child.line || [])];
+    }
+    if (score >= beta) {
+      return { score, line: [move, ...(child.line || [])] };
+    }
+    if (score > currentAlpha) currentAlpha = score;
+  }
+
+  return { score: currentAlpha, line: bestLine };
+}
+
+function negamax(state, depth, alpha, beta, ply, context, principalKey) {
+  if (shouldStop(context)) {
+    return { score: evaluateForTurn(state), line: [], timedOut: true };
+  }
+
+  context.nodes += 1;
+
+  if (depth === 0) {
+    return quiescence(state, alpha, beta, ply, context);
+  }
+
+  const legal = generateLegalMoves(state);
+  if (!legal.length) {
+    if (inCheck(state, state.turn)) return { score: NEG_INF + ply, line: [] };
+    return { score: 0, line: [] };
+  }
+
+  let bestMove = null;
+  let bestLine = [];
+  let bestScore = NEG_INF;
+
+  const ordered = orderMoves(legal, state, ply, context, principalKey);
+
+  for (const move of ordered) {
+    if (shouldStop(context)) {
       return {
-        score: child.score,
-        move,
-        line: [move, ...(child.line || [])],
+        score: bestScore !== NEG_INF ? bestScore : evaluateForTurn(state),
+        line: bestLine,
         timedOut: true,
       };
     }
-    const value = child.score;
-    const moveLine = [move, ...(child.line || [])];
-    if (maximizing) {
-      if (value > bestScore || bestMove === null) {
-        bestScore = value;
-        bestMove = move;
-        bestLine = moveLine;
+    if (ply > 0 && isHangingQueenMove(state, move)) continue;
+    const nextState = cloneState(state);
+    makeMove(nextState, move, { skipResult: true });
+    const child = negamax(nextState, depth - 1, -beta, -alpha, ply + 1, context, null);
+    if (child.timedOut) return { score: child.score, line: child.line, timedOut: true };
+    const score = -child.score;
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+      bestLine = [move, ...(child.line || [])];
+      if (ply === 0 && bestLine.length) {
+        const now = performance.now();
+        if (now - context.lastPvPost >= PV_UPDATE_INTERVAL_MS) {
+          context.lastPvPost = now;
+          const perspectiveScore = context.botSide === 'w' ? score : -score;
+          self.postMessage({
+            type: 'pv',
+            depth,
+            line: bestLine,
+            currentMove: moveToNotation(bestLine[0]),
+            lineNotation: bestLine.map(moveToNotation),
+            score: perspectiveScore,
+            elapsed: now - context.startTime,
+          });
+        }
       }
-      alpha = Math.max(alpha, value);
-    } else {
-      if (value < bestScore || bestMove === null) {
-        bestScore = value;
-        bestMove = move;
-        bestLine = moveLine;
-      }
-      beta = Math.min(beta, value);
     }
-    if (beta <= alpha) break;
+    if (score > alpha) {
+      alpha = score;
+    }
+    if (alpha >= beta) {
+      if (!move.capture && !move.promotion) {
+        updateKillers(context, ply, move);
+        updateHistory(context, state, move, depth);
+      }
+      break;
+    }
   }
 
+  if (!bestMove) return { score: bestScore, line: bestLine };
   return { score: bestScore, move: bestMove, line: bestLine };
 }
 
-function runRandomSampling(state, side, sampleWindowMs = 2000) {
-  const legal = orderMoves(generateLegalMoves(state));
-  const start = performance.now();
-  const baseClone = cloneState(state);
-  if (!legal.length) {
-    self.postMessage({
-      type: 'result',
-      move: null,
-      line: [],
-      moveNotation: '',
-      score: 0,
-      samples: 0,
-      elapsed: 0,
-    });
-    return;
-  }
-
+function runSearch(initialState, side, depthLimit, timeLimitMs) {
+  const context = createSearchContext(side, timeLimitMs);
   let bestMove = null;
-  let bestScore = -Infinity;
-  let samples = 0;
-  const window = Math.max(0, sampleWindowMs);
+  let bestLine = [];
+  let bestScore = evaluateForTurn(initialState);
 
-  while (!stopRequested) {
-    const elapsedBefore = performance.now() - start;
-    if (elapsedBefore >= window && samples > 0) break;
-    const move = legal[Math.floor(Math.random() * legal.length)];
-    const sampleState = cloneState(baseClone);
-    makeMove(sampleState, move, { skipResult: true });
-    const score = quickEvaluate(sampleState, side);
-    samples += 1;
-    const elapsed = performance.now() - start;
-    self.postMessage({
-      type: 'sample',
-      move,
-      moveNotation: moveToNotation(move),
-      score,
-      samples,
-      elapsed,
-      line: [move],
-    });
-    if (score > bestScore || !bestMove) {
-      bestScore = score;
-      bestMove = move;
+  let currentDepth = 1;
+  while (currentDepth <= depthLimit) {
+    const searchState = cloneState(initialState);
+    const principalKey = bestLine.length ? moveKey(bestLine[0]) : null;
+    const result = negamax(searchState, currentDepth, NEG_INF, POS_INF, 0, context, principalKey);
+    if (result.timedOut) break;
+    if (result.move) {
+      bestMove = result.move;
+      bestLine = result.line && result.line.length ? result.line : [result.move];
+      bestScore = result.score;
     }
-    if ((elapsed >= window && samples > 0) || stopRequested) break;
+    const now = performance.now();
+    self.postMessage({
+      type: 'pv',
+      depth: currentDepth,
+      line: bestLine,
+      currentMove: bestLine.length ? moveToNotation(bestLine[0]) : '',
+      lineNotation: bestLine.map(moveToNotation),
+      score: side === 'w' ? bestScore : -bestScore,
+      elapsed: now - context.startTime,
+    });
+    if (shouldStop(context)) break;
+    currentDepth += 1;
   }
 
-  self.postMessage({
-    type: 'result',
+  const elapsed = performance.now() - context.startTime;
+  return {
     move: bestMove,
-    line: bestMove ? [bestMove] : [],
-    moveNotation: moveToNotation(bestMove),
-    score: bestScore === -Infinity ? 0 : bestScore,
-    samples,
-    elapsed: performance.now() - start,
-  });
+    line: bestLine,
+    score: side === 'w' ? bestScore : -bestScore,
+    elapsed,
+  };
 }
 
 function reportError(err) {
@@ -317,69 +1045,36 @@ function reportError(err) {
 }
 
 self.addEventListener('message', (event) => {
-  try {
-    const { data } = event;
-    if (!data) return;
-    if (data.type === 'stop') {
-      stopRequested = true;
-      return;
-    }
-    if (data.type !== 'analyze') return;
+  const { data } = event;
+  if (!data) return;
+  if (data.type === 'stop') {
+    stopRequested = true;
+    return;
+  }
+  if (data.type !== 'analyze') return;
 
+  try {
     const {
       state,
       side,
-      depth = 2,
+      depth = 3,
       timeLimitMs = 10000,
-      sampleWindowMs = timeLimitMs,
-      mode = 'search',
       sacrificeBias = 0.25,
     } = data;
 
-    aggressionFactor = clamp01(sacrificeBias);
     stopRequested = false;
+    aggressionFactor = clamp01(sacrificeBias);
 
-    if (mode === 'random') {
-      runRandomSampling(state, side, sampleWindowMs);
-      return;
-    }
-
-    const start = performance.now();
-    let bestMove = null;
-    let bestLine = [];
-    let bestScoreValue = null;
-    let currentDepth = Math.max(1, depth);
-
-    while (currentDepth <= depth + 1 && !stopRequested) {
-      const searchState = cloneState(state);
-      const result = minimax(searchState, currentDepth, -Infinity, Infinity, side, start, timeLimitMs);
-      if (result.move) {
-        bestMove = result.move;
-        bestLine = result.line && result.line.length ? result.line : [result.move];
-        bestScoreValue = result.score;
-      }
-      self.postMessage({
-        type: 'pv',
-        depth: currentDepth,
-        line: result.line && result.line.length ? result.line : (result.move ? [result.move] : []),
-        currentMove: moveToNotation(result.line && result.line.length ? result.line[0] : result.move),
-        lineNotation: (result.line || []).map(moveToNotation),
-        score: result.score,
-        elapsed: performance.now() - start,
-      });
-      if (result.timedOut) break;
-      currentDepth += 1;
-      if (timeLimitMs && performance.now() - start > timeLimitMs) break;
-    }
-
+    const searchState = cloneState(state);
+    const result = runSearch(searchState, side, Math.max(1, depth), Math.max(0, timeLimitMs));
     self.postMessage({
       type: 'result',
-      move: bestMove,
-      line: bestLine,
-      moveNotation: moveToNotation(bestMove),
-      lineNotation: bestLine.map(moveToNotation),
-      score: bestScoreValue ?? 0,
-      elapsed: performance.now() - start,
+      move: result.move,
+      line: result.line,
+      moveNotation: moveToNotation(result.move),
+      lineNotation: result.line.map(moveToNotation),
+      score: result.score,
+      elapsed: result.elapsed,
     });
   } catch (err) {
     reportError(err);

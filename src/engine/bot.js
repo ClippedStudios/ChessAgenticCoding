@@ -34,10 +34,8 @@ export class Bot {
       config = {};
     }
     const {
-      mode = 'search',
-      depth = 2,
+      depth = 3,
       timeMs = 10000,
-      sampleWindowMs = timeMs,
       sacrificeBias = 0.25,
       onUpdate,
     } = config;
@@ -73,7 +71,7 @@ export class Bot {
       const handleMessage = (event) => {
         const { data } = event;
         if (!data || typeof data !== 'object') return;
-        if (data.type === 'pv' || data.type === 'sample') {
+        if (data.type === 'pv') {
           if (onUpdate) onUpdate(data);
           return;
         }
@@ -98,12 +96,10 @@ export class Bot {
       this.worker.addEventListener('error', handleError);
       this.worker.postMessage({
         type: 'analyze',
-        mode,
         state: statePayload,
         side: this.side,
         depth,
         timeLimitMs: timeMs,
-        sampleWindowMs,
         sacrificeBias,
       });
     });
