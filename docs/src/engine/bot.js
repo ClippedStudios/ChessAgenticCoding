@@ -1,8 +1,8 @@
-﻿const WORKER_URL = new URL('./bot.worker.js', import.meta.url);
+const WORKER_URL = new URL('./bot.worker.js', import.meta.url);
 
 function serializeState(state) {
   return {
-    board: state.board.map(row => [...row]),
+    board: state.board.map((row) => [...row]),
     turn: state.turn,
     castling: { ...state.castling },
     ep: state.ep ? { ...state.ep } : null,
@@ -18,25 +18,33 @@ export class Bot {
   }
 
   ensureWorker() {
-    if (!this.worker) this.worker = new Worker(WORKER_URL, { type: 'module' });
+    if (!this.worker) {
+      this.worker = new Worker(WORKER_URL, { type: 'module' });
+    }
   }
 
   chooseMove(game, options = {}) {
     this.ensureWorker();
-    let config;
-    if (typeof options === 'number') {
-      config = { depth: options };
-    } else {
-      config = options || {};
-    }
-    const {\n      mode = 'search',\n      depth = 2,\n      timeMs = 10_000,\n      sampleWindowMs = timeMs,\n      sacrificeBias = 0.25,\n      onUpdate,\n    } = config;
+    const config = typeof options === 'number' ? { depth: options } : { ...options };
+    const {
+      mode = 'search',
+      depth = 2,
+      timeMs = 10_000,
+      sampleWindowMs = timeMs,
+      sacrificeBias = 0.25,
+      onUpdate,
+    } = config;
 
     const statePayload = serializeState(game.state);
+
     return new Promise((resolve, reject) => {
-      const timer = timeMs > 0 ? setTimeout(() => {
-        cleanup();
-        resolve(null);
-      }, timeMs + 500) : null;
+      const timer =
+        timeMs > 0
+          ? setTimeout(() => {
+              cleanup();
+              resolve(null);
+            }, timeMs + 500)
+          : null;
 
       const cleanup = () => {
         if (timer) clearTimeout(timer);
@@ -48,7 +56,7 @@ export class Bot {
         const { data } = event;
         if (!data || typeof data !== 'object') return;
         if (data.type === 'pv' || data.type === 'sample') {
-          onUpdate?.(data);
+          if (onUpdate) onUpdate(data);
           return;
         }
         if (data.type === 'result') {
@@ -71,7 +79,8 @@ export class Bot {
         side: this.side,
         depth,
         timeLimitMs: timeMs,
-        sampleWindowMs,\n        sacrificeBias,
+        sampleWindowMs,
+        sacrificeBias,
       });
     });
   }
@@ -83,5 +92,4 @@ export class Bot {
     }
   }
 }
-
 
