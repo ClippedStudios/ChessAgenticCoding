@@ -39,6 +39,13 @@ dialog { border: none; border-radius: 10px; padding: 16px; width: 320px; }
 dialog::backdrop { background: rgba(0,0,0,0.4); }
 #newGameForm { display: flex; flex-direction: column; gap: 8px; }
 #newGameForm .row { display: flex; gap: 12px; }
+.fast-weights { margin-top: 8px; border: 1px solid rgba(148,163,184,0.2); border-radius: 8px; padding: 10px 12px; background: rgba(15,23,42,0.35); }
+.fast-weights legend { padding: 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #38bdf8; }
+.fast-weights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 14px; }
+.fast-weights-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #e2e8f0; }
+.fast-weights-grid input { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.3); background: rgba(15,23,42,0.7); color: #f8fafc; font-family: inherit; }
+.fast-weights small { display: block; margin-top: 6px; font-size: 12px; color: #94a3b8; }
+.fast-weights.disabled { opacity: 0.5; pointer-events: none; }
 
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }

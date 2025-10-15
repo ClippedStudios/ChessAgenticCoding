@@ -9,6 +9,29 @@ const BOT_MIN_DEPTH = 1;
 const BOT_MAX_DEPTH = 5;
 const BOT_MOVE_TIME_MS = 10000;
 const DEFAULT_THINK_SECONDS = 6;
+const DEFAULT_FAST_WEIGHTS = {
+  pawnValue: 100,
+  knightValue: 320,
+  bishopValue: 330,
+  rookValue: 500,
+  queenValue: 900,
+  checkPenalty: -900,
+  castleBonus: 40,
+  isolatedPenalty: -12,
+  passedBonus: 35,
+  passedRankBonus: 5,
+  doubledPenalty: -8,
+  mobilityBonus: 5,
+  knightCenterBonus: 8,
+  bishopActivityBonus: 6,
+  rookOpenBonus: 12,
+  queenEarlyPenalty: -12,
+  attackBonus: 12,
+  hangingPenalty: -18,
+  kingRingBonus: 6,
+};
+const FAST_WEIGHT_KEYS = Object.keys(DEFAULT_FAST_WEIGHTS);
+const FAST_WEIGHT_LIMIT = 5000;
 
 function init() {
   const boardEl = document.getElementById('board');
@@ -37,6 +60,7 @@ function init() {
   let botAggression = 0.25;
   let botModeSetting = 'strategic';
   let botDepthSetting = BOT_DEPTH;
+  let botFastWeights = { ...DEFAULT_FAST_WEIGHTS };
   const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 320 });
   let analysisTimerInterval = null;
   let analysisTimerDeadline = null;
@@ -135,6 +159,7 @@ function init() {
         timeMs: timeBudget,
         sacrificeBias: botAggression,
         onUpdate: botModeSetting === 'strategic' ? handleUpdate : undefined,
+        fastWeights: botModeSetting === 'fast' ? botFastWeights : undefined,
       });
 
       if (move) {
@@ -165,13 +190,16 @@ function init() {
     }
   };
 
-  const startNewGame = ({ side, mode, sampleSeconds, sacrificeValue, depth }) => {
+  const startNewGame = ({ side, mode, sampleSeconds, sacrificeValue, depth, fastWeights }) => {
     if (bot) bot.dispose();
 
     playerSide = side;
     botModeSetting = mode === 'fast' ? 'fast' : 'strategic';
     const depthValue = Number.isFinite(depth) ? depth : BOT_DEPTH;
     botDepthSetting = Math.max(BOT_MIN_DEPTH, Math.min(BOT_MAX_DEPTH, depthValue));
+    botFastWeights = botModeSetting === 'fast'
+      ? sanitizeFastWeightObj(fastWeights)
+      : { ...DEFAULT_FAST_WEIGHTS };
     const seconds = Number.isFinite(sampleSeconds) ? sampleSeconds : DEFAULT_THINK_SECONDS;
     botBudgetMs = Math.max(1, Math.min(30, seconds)) * 1000;
     botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));
@@ -212,6 +240,68 @@ function init() {
   const botStyleSelect = form.elements.namedItem('botStyle');
   const botDepthInput = form.elements.namedItem('botDepth');
   const depthHint = document.getElementById('depthHint');
+  const fastWeightsSection = document.getElementById('fastWeightsSection');
+  const fastWeightInputs = {};
+  FAST_WEIGHT_KEYS.forEach((key) => {
+    const input = form.elements.namedItem(`fast_${key}`);
+    if (input) {
+      fastWeightInputs[key] = input;
+      input.value = DEFAULT_FAST_WEIGHTS[key];
+    }
+  });
+
+  const clampDepth = (value) => {
+    const numeric = Number.isFinite(value) ? value : BOT_DEPTH;
+    return Math.max(BOT_MIN_DEPTH, Math.min(BOT_MAX_DEPTH, Math.round(numeric)));
+  };
+
+  const sanitizeFastWeightObj = (raw) => {
+    const result = { ...DEFAULT_FAST_WEIGHTS };
+    if (!raw) return result;
+    FAST_WEIGHT_KEYS.forEach((key) => {
+      const value = Number.parseFloat(raw[key]);
+      if (Number.isFinite(value)) {
+        result[key] = Math.max(-FAST_WEIGHT_LIMIT, Math.min(FAST_WEIGHT_LIMIT, value));
+      }
+    });
+    return result;
+  };
+
+  const readFastWeights = () => {
+    const current = {};
+    Object.entries(fastWeightInputs).forEach(([key, input]) => {
+      current[key] = input.value;
+    });
+    return sanitizeFastWeightObj(current);
+  };
+
+  Object.entries(fastWeightInputs).forEach(([key, input]) => {
+    input.addEventListener('change', () => {
+      const value = Number.parseFloat(input.value);
+      if (Number.isFinite(value)) {
+        input.value = Math.max(-FAST_WEIGHT_LIMIT, Math.min(FAST_WEIGHT_LIMIT, value));
+      } else {
+        input.value = DEFAULT_FAST_WEIGHTS[key];
+      }
+    });
+  });
+
+  const syncModeControls = () => {
+    const isFast = botStyleSelect ? botStyleSelect.value === 'fast' : false;
+    if (botDepthInput) {
+      botDepthInput.disabled = isFast;
+      botDepthInput.value = clampDepth(Number.parseInt(botDepthInput.value, 10));
+    }
+    if (depthHint) {
+      depthHint.textContent = isFast ? 'Depth is fixed for the fast bot.' : 'Used only for the strategic bot.';
+    }
+    Object.values(fastWeightInputs).forEach((input) => {
+      input.disabled = !isFast;
+    });
+    if (fastWeightsSection) {
+      fastWeightsSection.classList.toggle('disabled', !isFast);
+    }
+  };
 
   const describeAggression = (value) => {
     if (value <= 5) return 'None';
@@ -231,35 +321,16 @@ function init() {
   }
 
   if (botDepthInput) {
-    const clampDepth = (value) => {
-      const numeric = Number.isFinite(value) ? value : BOT_DEPTH;
-      const bounded = Math.max(BOT_MIN_DEPTH, Math.min(BOT_MAX_DEPTH, Math.round(numeric)));
-      return bounded;
-    };
-
-    const syncDepthState = () => {
-      if (!botDepthInput) return;
-      const isStrategic = !botStyleSelect || botStyleSelect.value !== 'fast';
-      botDepthInput.disabled = !isStrategic;
-      const value = Number.parseInt(botDepthInput.value, 10);
-      botDepthInput.value = clampDepth(value);
-      if (depthHint) {
-        depthHint.textContent = isStrategic
-          ? 'Used only for the strategic bot.'
-          : 'Depth is fixed for the fast bot.';
-      }
-    };
-
     botDepthInput.addEventListener('change', () => {
       botDepthInput.value = clampDepth(Number.parseInt(botDepthInput.value, 10));
     });
-
-    if (botStyleSelect) {
-      botStyleSelect.addEventListener('change', syncDepthState);
-    }
-
-    syncDepthState();
   }
+
+  if (botStyleSelect) {
+    botStyleSelect.addEventListener('change', syncModeControls);
+  }
+
+  syncModeControls();
 
   newGameBtn.addEventListener('click', () => dlg.showModal());
 
@@ -281,6 +352,7 @@ function init() {
       sampleSeconds,
       sacrificeValue,
       depth: depthValue,
+      fastWeights: readFastWeights(),
     });
   });
 

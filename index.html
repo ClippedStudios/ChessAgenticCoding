@@ -66,6 +66,69 @@
           value="3"
         />
         <small id="depthHint">Used only for the strategic bot.</small>
+        <fieldset id="fastWeightsSection" class="fast-weights">
+          <legend>Fast Bot Scoring</legend>
+          <div class="fast-weights-grid">
+            <label for="fastPawnValue">Pawn value
+              <input id="fastPawnValue" name="fast_pawnValue" type="number" step="1" value="100" />
+            </label>
+            <label for="fastKnightValue">Knight value
+              <input id="fastKnightValue" name="fast_knightValue" type="number" step="1" value="320" />
+            </label>
+            <label for="fastBishopValue">Bishop value
+              <input id="fastBishopValue" name="fast_bishopValue" type="number" step="1" value="330" />
+            </label>
+            <label for="fastRookValue">Rook value
+              <input id="fastRookValue" name="fast_rookValue" type="number" step="1" value="500" />
+            </label>
+            <label for="fastQueenValue">Queen value
+              <input id="fastQueenValue" name="fast_queenValue" type="number" step="1" value="900" />
+            </label>
+            <label for="fastCheckPenalty">Check penalty
+              <input id="fastCheckPenalty" name="fast_checkPenalty" type="number" step="1" value="-900" />
+            </label>
+            <label for="fastCastleBonus">Castled bonus
+              <input id="fastCastleBonus" name="fast_castleBonus" type="number" step="1" value="40" />
+            </label>
+            <label for="fastIsolatedPenalty">Isolated pawn penalty
+              <input id="fastIsolatedPenalty" name="fast_isolatedPenalty" type="number" step="1" value="-12" />
+            </label>
+            <label for="fastPassedBonus">Passed pawn bonus
+              <input id="fastPassedBonus" name="fast_passedBonus" type="number" step="1" value="35" />
+            </label>
+            <label for="fastPassedRankBonus">Passed pawn rank bonus
+              <input id="fastPassedRankBonus" name="fast_passedRankBonus" type="number" step="1" value="5" />
+            </label>
+            <label for="fastDoubledPenalty">Doubled pawn penalty
+              <input id="fastDoubledPenalty" name="fast_doubledPenalty" type="number" step="1" value="-8" />
+            </label>
+            <label for="fastMobilityBonus">Mobility bonus
+              <input id="fastMobilityBonus" name="fast_mobilityBonus" type="number" step="1" value="5" />
+            </label>
+            <label for="fastKnightCenterBonus">Knight center bonus
+              <input id="fastKnightCenterBonus" name="fast_knightCenterBonus" type="number" step="1" value="8" />
+            </label>
+            <label for="fastBishopActivityBonus">Bishop activity bonus
+              <input id="fastBishopActivityBonus" name="fast_bishopActivityBonus" type="number" step="1" value="6" />
+            </label>
+            <label for="fastRookOpenBonus">Rook open file bonus
+              <input id="fastRookOpenBonus" name="fast_rookOpenBonus" type="number" step="1" value="12" />
+            </label>
+            <label for="fastQueenEarlyPenalty">Queen early penalty
+              <input id="fastQueenEarlyPenalty" name="fast_queenEarlyPenalty" type="number" step="1" value="-12" />
+            </label>
+            <label for="fastAttackBonus">Threat bonus
+              <input id="fastAttackBonus" name="fast_attackBonus" type="number" step="1" value="12" />
+            </label>
+            <label for="fastHangingPenalty">Hanging piece penalty
+              <input id="fastHangingPenalty" name="fast_hangingPenalty" type="number" step="1" value="-18" />
+            </label>
+            <label for="fastKingRingBonus">King ring pressure bonus
+              <input id="fastKingRingBonus" name="fast_kingRingBonus" type="number" step="1" value="6" />
+            </label>
+          </div>
+          <small>Values are in centipawns (hundredths of a pawn). Positive rewards, negative penalties.</small>
+        </fieldset>
         <label for="sacrificeBias">Sacrifice preference</label>
         <input
           id="sacrificeBias"
