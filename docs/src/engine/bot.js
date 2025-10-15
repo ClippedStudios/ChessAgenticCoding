@@ -59,7 +59,16 @@ export class Bot {
           if (onUpdate) onUpdate(data);
           return;
         }
-        if (data.type === 'result') {\n          cleanup();\n          resolve(data.move || null);\n          return;\n        }\n        if (data.type === 'error') {\n          cleanup();\n          reject(new Error(data.message || 'Bot worker error'));\n          return;\n        }
+        if (data.type === 'result') {
+          cleanup();
+          resolve(data.move || null);
+          return;
+        }
+        if (data.type === 'error') {
+          cleanup();
+          reject(new Error(data.message || 'Bot worker error'));
+          return;
+        }
       };
 
       const handleError = (err) => {
@@ -89,6 +98,3 @@ export class Bot {
     }
   }
 }
-
-
-
