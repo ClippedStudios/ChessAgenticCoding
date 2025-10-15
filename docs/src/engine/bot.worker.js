@@ -1,43 +1,60 @@
-﻿import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra } from '../chess/rules.js';
+import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra } from '../chess/rules.js';
+
 let aggressionFactor = 0.25;
 
 const PIECE_VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 };
 
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
 function baseEvaluation(state) {
   let score = 0;
   const board = state.board;
-  for (let r = 0; r < 8; r++) {
-    for (let c = 0; c < 8; c++) {
-      const p = board[r][c];
-      if (!p) continue;
-      const val = PIECE_VALUES[p.toUpperCase()] || 0;
-      score += p === p.toUpperCase() ? val : -val;
+  for (let r = 0; r < 8; r += 1) {
+    for (let c = 0; c < 8; c += 1) {
+      const piece = board[r][c];
+      if (!piece) continue;
+      const value = PIECE_VALUES[piece.toUpperCase()] || 0;
+      score += piece === piece.toUpperCase() ? value : -value;
     }
   }
   return score;
 }
 
-function evaluate(state, side) {
+function mobilityCount(state, side) {
+  const temp = cloneState(state);
+  temp.turn = side;
+  return generateLegalMoves(temp).length;
+}
+
+function evaluate(state, perspective) {
   const material = baseEvaluation(state);
-  let mobility = 0;
-  try {
-    mobility = generateLegalMoves(state).length;
-  } catch (_) {
-    mobility = 0;
+  const perspectiveMaterial = perspective === 'w' ? material : -material;
+
+  const myMobility = mobilityCount(state, perspective);
+  const oppMobility = mobilityCount(state, perspective === 'w' ? 'b' : 'w');
+  const positionalDiff = myMobility - oppMobility;
+  const positionalScore = positionalDiff * 4;
+
+  let sacrificeBonus = 0;
+  if (positionalScore > 0 && perspectiveMaterial < 0) {
+    sacrificeBonus = aggressionFactor * Math.min(Math.abs(perspectiveMaterial), positionalScore);
+  } else if (positionalScore < 0 && perspectiveMaterial > 0) {
+    sacrificeBonus = -aggressionFactor * Math.min(perspectiveMaterial, Math.abs(positionalScore));
   }
-  const mobilityScore = Math.min(mobility, 30) * 5 * (state.turn === 'w' ? 1 : -1);
-  const perspectiveMaterial = side === 'w' ? material : -material;
-  const sacrificeBias = -0.08 * perspectiveMaterial;
-  const total = material + mobilityScore + sacrificeBias;
-  return side === 'w' ? total : -total;
+
+  return perspectiveMaterial + positionalScore + sacrificeBonus;
 }
 
 function orderMoves(moves) {
-  return moves.slice().sort((a, b) => {
-    const av = (a.capture ? 1000 : 0) + (a.promotion ? 500 : 0);
-    const bv = (b.capture ? 1000 : 0) + (b.promotion ? 500 : 0);
-    return bv - av;
-  });
+  return moves
+    .slice()
+    .sort((a, b) => {
+      const av = (a.capture ? 1000 : 0) + (a.promotion ? 500 : 0);
+      const bv = (b.capture ? 1000 : 0) + (b.promotion ? 500 : 0);
+      return bv - av;
+    });
 }
 
 function moveToNotation(move) {
@@ -124,18 +141,19 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
     });
     return;
   }
+
   let bestMove = null;
   let bestScore = -Infinity;
   let samples = 0;
   const window = Math.max(0, sampleWindowMs);
-  while (true) {
-    const elapsed = performance.now() - start;
-    if (samples > 0 && elapsed >= window) break;
+
+  do {
     const move = legal[Math.floor(Math.random() * legal.length)];
     const sampleState = cloneState(baseClone);
     makeMove(sampleState, move, { skipResult: true });
     const score = evaluate(sampleState, side);
     samples += 1;
+    const elapsed = performance.now() - start;
     self.postMessage({
       type: 'sample',
       move,
@@ -149,8 +167,9 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
       bestScore = score;
       bestMove = move;
     }
-    if (window === 0 && samples >= 1) break;
-  }
+    if (elapsed >= window) break;
+  } while (true);
+
   self.postMessage({
     type: 'result',
     move: bestMove,
@@ -165,7 +184,19 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
 self.addEventListener('message', (event) => {
   const { data } = event;
   if (!data || data.type !== 'analyze') return;
-  const { state, side, depth = 2, timeLimitMs = 10000, sampleWindowMs = timeLimitMs, mode = 'search', sacrificeBias = 0.25 } = data;\n  aggressionFactor = Math.max(0, Math.min(1, sacrificeBias));
+
+  const {
+    state,
+    side,
+    depth = 2,
+    timeLimitMs = 10000,
+    sampleWindowMs = timeLimitMs,
+    mode = 'search',
+    sacrificeBias = 0.25,
+  } = data;
+
+  aggressionFactor = clamp01(sacrificeBias);
+
   if (mode === 'random') {
     runRandomSampling(state, side, sampleWindowMs);
     return;
@@ -209,7 +240,4 @@ self.addEventListener('message', (event) => {
     elapsed: performance.now() - start,
   });
 });
-
-
-
 
