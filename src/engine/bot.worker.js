@@ -5,6 +5,21 @@ let stopRequested = false;
 
 const PIECE_VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 };
 
+const PIECE_TAG = {
+  P: 'pawn',
+  N: 'minor',
+  B: 'minor',
+  R: 'rook',
+  Q: 'queen',
+  K: 'king',
+  p: 'pawn',
+  n: 'minor',
+  b: 'minor',
+  r: 'rook',
+  q: 'queen',
+  k: 'king',
+};
+
 function clamp01(value) {
   return Math.max(0, Math.min(1, value));
 }
@@ -29,19 +44,41 @@ function mobilityCount(state, side) {
   return generateLegalMoves(temp).length;
 }
 
-function gatherDefenders(state, side) {
-  const defenders = new Map();
+function computeControl(state, side) {
+  const control = new Map();
   const temp = cloneState(state);
   temp.turn = side;
   const moves = generateLegalMoves(temp);
   for (const move of moves) {
     const key = `${move.to.r},${move.to.c}`;
-    defenders.set(key, (defenders.get(key) || 0) + 1);
+    const arr = control.get(key);
+    const piece = pieceAt(state.board, move.from.r, move.from.c);
+    const value = PIECE_VALUES[piece.toUpperCase()] || 0;
+    const info = { value, piece };
+    if (arr) arr.push(info);
+    else control.set(key, [info]);
   }
-  return defenders;
+  return control;
 }
 
-function computeExposurePenalty(state, side, defenders) {
+function materialPressure(controlMap) {
+  let pressure = 0;
+  controlMap.forEach((infos) => {
+    let total = 0;
+    for (const info of infos) total += info.value;
+    pressure += total;
+  });
+  return pressure;
+}
+
+function defenderSummary(controlMap, key) {
+  const infos = controlMap.get(key) || [];
+  let total = 0;
+  for (const info of infos) total += info.value;
+  return { count: infos.length, totalValue: total };
+}
+
+function evaluateExposure(state, side, defenders) {
   let penalty = 0;
   for (let r = 0; r < 8; r += 1) {
     for (let c = 0; c < 8; c += 1) {
@@ -50,12 +87,13 @@ function computeExposurePenalty(state, side, defenders) {
       const isWhite = piece === piece.toUpperCase();
       const color = isWhite ? 'w' : 'b';
       if (color !== side) continue;
+      if (piece.toUpperCase() === 'K') continue;
       const value = PIECE_VALUES[piece.toUpperCase()] || 0;
-      if (!value || piece.toUpperCase() === 'K') continue;
-      const defended = defenders.get(`${r},${c}`) || 0;
-      if (defended === 0) {
-        penalty -= value * 0.4;
-      }
+      if (!value) continue;
+      const key = `${r},${c}`;
+      const summary = defenderSummary(defenders, key);
+      if (summary.count === 0) penalty -= value * 0.35;
+      else if (summary.totalValue < value) penalty -= value * 0.15;
     }
   }
   return penalty;
@@ -73,22 +111,19 @@ function computeThreatScore(state, perspective, defenders) {
     if (captured) {
       const value = PIECE_VALUES[captured.toUpperCase()] || 0;
       if (value) {
-        const defended = defenders.get(`${move.to.r},${move.to.c}`) || 0;
-        threatScore -= defended ? value * 0.6 : value * 1.1;
+        const defended = defenderSummary(defenders, `${move.to.r},${move.to.c}`);
+        if (defended.count === 0) threatScore -= value * 1.1;
+        else if (defended.totalValue < value) threatScore -= value * 0.5;
+        else threatScore -= value * 0.25;
       }
     }
 
-    const next = cloneState(state);
-    makeMove(next, move, { skipResult: true });
-    if (inCheck(next, perspective)) {
-      const replyState = cloneState(next);
-      replyState.turn = perspective;
-      const replies = generateLegalMoves(replyState);
-      if (replies.length === 0) {
-        threatScore -= 10000;
-      } else {
-        threatScore -= 300;
-      }
+    const replyState = cloneState(state);
+    makeMove(replyState, move, { skipResult: true });
+    if (inCheck(replyState, perspective)) {
+      const replies = mobilityCount(replyState, perspective);
+      if (replies === 0) threatScore -= 10000;
+      else threatScore -= 400;
     }
   }
 
@@ -104,16 +139,26 @@ function evaluate(state, perspective) {
   const positionalDiff = myMobility - oppMobility;
   const positionalScore = positionalDiff * 3;
 
-  const defenders = gatherDefenders(state, perspective);
-  const threatScore = computeThreatScore(state, perspective, defenders);
-  const exposurePenalty = computeExposurePenalty(state, perspective, defenders);
+  const myControl = computeControl(state, perspective);
+  const oppControl = computeControl(state, perspective === 'w' ? 'b' : 'w');
+  const threatScore = computeThreatScore(state, perspective, myControl);
+  const exposurePenalty = evaluateExposure(state, perspective, myControl);
 
   let sacrificeBonus = 0;
   if (positionalDiff > 0 && perspectiveMaterial < 0) {
-    sacrificeBonus = aggressionFactor * Math.min(Math.abs(perspectiveMaterial), Math.abs(positionalDiff) * 50);
+    sacrificeBonus = aggressionFactor * Math.min(Math.abs(perspectiveMaterial), Math.abs(positionalDiff) * 40);
   }
 
-  return perspectiveMaterial + positionalScore + sacrificeBonus + threatScore + exposurePenalty;
+  const pressureDiff = materialPressure(myControl) - materialPressure(oppControl);
+
+  return (
+    perspectiveMaterial +
+    positionalScore +
+    sacrificeBonus +
+    threatScore +
+    exposurePenalty +
+    pressureDiff * 0.02
+  );
 }
 
 function quickEvaluate(state, perspective) {
@@ -305,7 +350,7 @@ self.addEventListener('message', (event) => {
     let bestScoreValue = null;
     let currentDepth = Math.max(1, depth);
 
-    while (currentDepth <= depth + 1) {
+    while (currentDepth <= depth + 1 && !stopRequested) {
       const searchState = cloneState(state);
       const result = minimax(searchState, currentDepth, -Infinity, Infinity, side, start, timeLimitMs);
       if (result.move) {
