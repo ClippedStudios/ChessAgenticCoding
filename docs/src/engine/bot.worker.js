@@ -115,6 +115,16 @@ function evaluate(state, perspective) {
   return perspectiveMaterial + positionalScore + sacrificeBonus + threatScore + exposurePenalty;
 }
 
+function quickEvaluate(state, perspective) {
+  const material = baseEvaluation(state);
+  const perspectiveMaterial = perspective === 'w' ? material : -material;
+  const myMobility = mobilityCount(state, perspective);
+  const oppMobility = mobilityCount(state, perspective === 'w' ? 'b' : 'w');
+  const positional = (myMobility - oppMobility) * 2;
+  const sacrificeBonus = perspectiveMaterial < 0 ? aggressionFactor * Math.min(Math.abs(perspectiveMaterial), Math.abs(positional)) : 0;
+  return perspectiveMaterial + positional + sacrificeBonus;
+}
+
 function orderMoves(moves) {
   return moves
     .slice()
@@ -216,10 +226,12 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
   const window = Math.max(0, sampleWindowMs);
 
   while (true) {
+    const elapsedBefore = performance.now() - start;
+    if (elapsedBefore >= window && samples > 0) break;
     const move = legal[Math.floor(Math.random() * legal.length)];
     const sampleState = cloneState(baseClone);
     makeMove(sampleState, move, { skipResult: true });
-    const score = evaluate(sampleState, side);
+    const score = quickEvaluate(sampleState, side);
     samples += 1;
     const elapsed = performance.now() - start;
     self.postMessage({
@@ -235,7 +247,7 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
       bestScore = score;
       bestMove = move;
     }
-    if (elapsed >= window || (window === 0 && samples >= 1)) break;
+    if (elapsed >= window && samples > 0) break;
   }
 
   self.postMessage({
@@ -320,4 +332,3 @@ self.addEventListener('message', (event) => {
     reportError(err);
   }
 });
-
