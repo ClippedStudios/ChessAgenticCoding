@@ -165,7 +165,7 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
 self.addEventListener('message', (event) => {
   const { data } = event;
   if (!data || data.type !== 'analyze') return;
-  const { state, side, depth = 2, timeLimitMs = 10_000, sampleWindowMs = timeLimitMs, mode = 'search', sacrificeBias = 0.25 } = data;\n  aggressionFactor = Math.max(0, Math.min(1, sacrificeBias));
+  const { state, side, depth = 2, timeLimitMs = 10000, sampleWindowMs = timeLimitMs, mode = 'search', sacrificeBias = 0.25 } = data;\n  aggressionFactor = Math.max(0, Math.min(1, sacrificeBias));
   if (mode === 'random') {
     runRandomSampling(state, side, sampleWindowMs);
     return;
@@ -209,6 +209,7 @@ self.addEventListener('message', (event) => {
     elapsed: performance.now() - start,
   });
 });
+
 
 
 

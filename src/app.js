@@ -5,7 +5,7 @@ import { cloneState } from './chess/rules.js';
 import { createAnalysisDisplay } from './ui/analysisBoard.js';
 
 const BOT_DEPTH = 2;
-const BOT_MOVE_TIME_MS = 10_000;
+const BOT_MOVE_TIME_MS = 10000;
 const DEFAULT_SAMPLE_SECONDS = 6;
 
 function init() {
@@ -217,3 +217,4 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+

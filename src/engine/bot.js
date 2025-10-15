@@ -29,7 +29,7 @@ export class Bot {
     const {
       mode = 'search',
       depth = 2,
-      timeMs = 10_000,
+      timeMs = 10000,
       sampleWindowMs = timeMs,
       sacrificeBias = 0.25,
       onUpdate,
@@ -92,4 +92,5 @@ export class Bot {
     }
   }
 }
+
 
