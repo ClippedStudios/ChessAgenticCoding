@@ -19,6 +19,7 @@ function init() {
   const form = document.getElementById('newGameForm');
   const analysisRoot = document.getElementById('analysisBoard');
   const analysisInfo = document.getElementById('analysisInfo');
+  const analysisTimerEl = document.getElementById('analysisTimerLabel');
 
   if (!boardEl || !statusEl || !movesEl || !dlg || !newGameBtn || !startGameBtn || !resignBtn || !form || !analysisRoot || !analysisInfo) {
     console.error('Chess UI initialisation failed: missing required elements.');
@@ -34,6 +35,8 @@ function init() {
   let botBudgetMs = BOT_MOVE_TIME_MS;
   let botAggression = 0.25;
   const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 320 });
+  let analysisTimerInterval = null;
+  let analysisTimerDeadline = null;
 
   const setStatus = (text) => {
     statusEl.textContent = text;
@@ -50,6 +53,38 @@ function init() {
     const sign = side === 'w' ? 1 : -1;
     const value = (score / 100) * sign;
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
+  };
+
+  const stopAnalysisTimer = (forceZero = false) => {
+    if (analysisTimerInterval) {
+      clearInterval(analysisTimerInterval);
+      analysisTimerInterval = null;
+    }
+    analysisTimerDeadline = null;
+    if (!analysisTimerEl) return;
+    if (forceZero) analysisTimerEl.textContent = '0.0s';
+    else analysisTimerEl.textContent = '--.-s';
+  };
+
+  const updateAnalysisTimer = () => {
+    if (!analysisTimerEl || !analysisTimerDeadline) return;
+    const remaining = Math.max(0, analysisTimerDeadline - performance.now());
+    analysisTimerEl.textContent = `${(remaining / 1000).toFixed(1)}s`;
+  };
+
+  const startAnalysisTimer = (durationMs) => {
+    if (!analysisTimerEl) return;
+    stopAnalysisTimer();
+    analysisTimerDeadline = performance.now() + durationMs;
+    updateAnalysisTimer();
+    analysisTimerInterval = setInterval(() => {
+      if (!analysisTimerDeadline) return;
+      if (performance.now() >= analysisTimerDeadline) {
+        stopAnalysisTimer(true);
+      } else {
+        updateAnalysisTimer();
+      }
+    }, 100);
   };
 
   const checkResult = () => {
@@ -95,6 +130,7 @@ function init() {
       const targetBudget = Math.max(minBudget, botBudgetMs);
       const timeBudget = Math.max(minBudget, Math.min(targetBudget, sideMs || targetBudget));
       await new Promise((resolve) => requestAnimationFrame(resolve));
+      startAnalysisTimer(timeBudget);
       const move = await bot.chooseMove(game, {
         mode,
         depth: BOT_DEPTH,
@@ -115,6 +151,7 @@ function init() {
       setStatus('Bot move failed - you win by error');
       analysisDisplay.clear({ infoText: 'Bot encountered an error.' });
     } finally {
+      stopAnalysisTimer(true);
       botThinking = false;
       if (!game.getResult()) {
         setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
@@ -137,6 +174,7 @@ function init() {
     botBudgetMs = Math.max(1, Math.min(30, seconds)) * 1000;
     botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));
     botThinking = false;
+    stopAnalysisTimer();
 
     game = createGame();
     bot = new Bot(playerSide === 'w' ? 'b' : 'w');

@@ -1,4 +1,4 @@
-* { box-sizing: border-box; }
+﻿* { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; font-family: system-ui, Arial, sans-serif; }
 body { display: flex; flex-direction: column; background: #0f172a; color: #e2e8f0; }
 
@@ -32,6 +32,8 @@ body { display: flex; flex-direction: column; background: #0f172a; color: #e2e8f
 .analysis-panel { display: flex; flex-direction: column; gap: 16px; padding: 16px; border-radius: 16px; background: rgba(15,23,42,0.45); box-shadow: inset 0 0 0 1px rgba(148,163,184,0.12); }
 .analysis-panel h2 { margin: 0; font-size: 18px; letter-spacing: 0.04em; text-transform: uppercase; color: #38bdf8; }
 .analysis-info { min-height: 40px; padding: 10px 14px; border-radius: 12px; background: rgba(30,41,59,0.85); font-size: 14px; line-height: 1.4; box-shadow: inset 0 0 0 1px rgba(148,163,184,0.1); }
+.analysis-timer { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgba(148,163,184,0.2); border-radius: 10px; background: rgba(15,23,42,0.6); font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #e0f2fe; }
+.analysis-timer .timer-label { color: #94a3b8; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
 
 dialog { border: none; border-radius: 10px; padding: 16px; width: 320px; }
 dialog::backdrop { background: rgba(0,0,0,0.4); }
