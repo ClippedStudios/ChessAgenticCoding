@@ -39,6 +39,7 @@ export class Bot {
       timeMs = 10000,
       sacrificeBias = 0.25,
       onUpdate,
+      fastWeights = null,
     } = config;
 
     const statePayload = serializeState(game.state);
@@ -103,6 +104,7 @@ export class Bot {
         depth,
         timeLimitMs: timeMs,
         sacrificeBias,
+        fastWeights: fastWeights ? { ...fastWeights } : null,
       });
     });
   }

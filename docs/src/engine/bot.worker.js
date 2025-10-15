@@ -248,19 +248,162 @@ const PST_EG = {
   ],
 };
 
-function simpleMaterialScore(state, perspective) {
-  let total = 0;
-  for (let r = 0; r < 8; r += 1) {
-    const row = state.board[r];
-    for (let c = 0; c < 8; c += 1) {
-      const piece = row[c];
-      if (!piece) continue;
-      const value = PIECE_VALUES[piece.toUpperCase()] || 0;
-      total += piece === piece.toUpperCase() ? value : -value;
+const DEFAULT_FAST_WEIGHTS = {
+  pawnValue: 100,
+  knightValue: 320,
+  bishopValue: 330,
+  rookValue: 500,
+  queenValue: 900,
+  checkPenalty: -900,
+  castleBonus: 40,
+  isolatedPenalty: -12,
+  passedBonus: 35,
+  passedRankBonus: 5,
+  doubledPenalty: -8,
+  mobilityBonus: 5,
+  knightCenterBonus: 8,
+  bishopActivityBonus: 6,
+  rookOpenBonus: 12,
+  queenEarlyPenalty: -12,
+  attackBonus: 12,
+  hangingPenalty: -18,
+  kingRingBonus: 6,
+};
+
+const FAST_WEIGHT_KEYS = Object.keys(DEFAULT_FAST_WEIGHTS);
+
+function sanitizeFastWeights(raw) {
+  const weights = { ...DEFAULT_FAST_WEIGHTS };
+  if (!raw || typeof raw !== 'object') return weights;
+  for (const key of FAST_WEIGHT_KEYS) {
+    const value = Number(raw[key]);
+    if (Number.isFinite(value)) {
+      weights[key] = Math.max(-5000, Math.min(5000, value));
     }
   }
-  return perspective === 'w' ? total : -total;
+  return weights;
 }
+
+function isCastled(kingPos, side) {
+  if (!kingPos) return false;
+  if (side === 'w') return kingPos.r === 7 && (kingPos.c === 6 || kingPos.c === 2);
+  return kingPos.r === 0 && (kingPos.c === 6 || kingPos.c === 2);
+}
+
+function isPassedPawnFast(pawn, side, enemyPawnBoard) {
+  const dir = side === 'w' ? -1 : 1;
+  let r = pawn.r + dir;
+  while (r >= 0 && r <= 7) {
+    for (let dc = -1; dc <= 1; dc += 1) {
+      const c = pawn.c + dc;
+      if (c < 0 || c > 7) continue;
+      if (enemyPawnBoard[r][c]) return false;
+    }
+    r += dir;
+  }
+  return true;
+}
+
+function computePawnStats(pawns, side, enemyPawnBoard) {
+  const files = Array(8).fill(0);
+  for (const pawn of pawns) {
+    files[pawn.c] += 1;
+  }
+  let isolated = 0;
+  let passed = 0;
+  let passedAdvance = 0;
+  let doubled = 0;
+  for (let file = 0; file < 8; file += 1) {
+    const count = files[file];
+    if (count > 1) doubled += count - 1;
+  }
+  for (const pawn of pawns) {
+    const left = pawn.c > 0 ? files[pawn.c - 1] : 0;
+    const right = pawn.c < 7 ? files[pawn.c + 1] : 0;
+    if (left === 0 && right === 0) isolated += 1;
+    if (isPassedPawnFast(pawn, side, enemyPawnBoard)) {
+      passed += 1;
+      const advance = side === 'w' ? 6 - pawn.r : pawn.r - 1;
+      passedAdvance += Math.max(advance, 0);
+    }
+  }
+  return { files, isolated, doubled, passed, passedAdvance };
+}
+
+function countLegalMovesLimited(state, side, cap = 40) {
+  const originalTurn = state.turn;
+  state.turn = side;
+  let count = 0;
+  try {
+    const moves = generateLegalMoves(state);
+    count = moves.length;
+  } finally {
+    state.turn = originalTurn;
+  }
+  return Math.min(count, cap);
+}
+
+function countKnightsInCenter(knights) {
+  let score = 0;
+  for (const knight of knights) {
+    if (knight.r >= 2 && knight.r <= 5 && knight.c >= 2 && knight.c <= 5) {
+      score += 1;
+      if (knight.r >= 3 && knight.r <= 4 && knight.c >= 3 && knight.c <= 4) {
+        score += 0.5;
+      }
+    }
+  }
+  return score;
+}
+
+function bishopReachFrom(board, bishop) {
+  let reach = 0;
+  for (const [dr, dc] of BISHOP_DIRS) {
+    let r = bishop.r + dr;
+    let c = bishop.c + dc;
+    while (r >= 0 && r <= 7 && c >= 0 && c <= 7) {
+      reach += 1;
+      if (board[r][c]) break;
+      r += dr;
+      c += dc;
+    }
+  }
+  return reach;
+}
+
+function totalBishopReach(board, bishops) {
+  let total = 0;
+  for (const bishop of bishops) {
+    total += bishopReachFrom(board, bishop);
+  }
+  return total;
+}
+
+function rookFileScore(rooks, friendlyFiles, enemyFiles) {
+  let score = 0;
+  for (const rook of rooks) {
+    const friendly = friendlyFiles[rook.c] || 0;
+    const enemy = enemyFiles[rook.c] || 0;
+    if (friendly === 0) {
+      score += enemy === 0 ? 1 : 0.5;
+    }
+  }
+  return score;
+}
+
+function kingRingPressure(analysis, attackerSide, kingPos) {
+  if (!kingPos) return 0;
+  let pressure = 0;
+  for (const [dr, dc] of KING_DIRS) {
+    const r = kingPos.r + dr;
+    const c = kingPos.c + dc;
+    if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+    const attackers = attacksOnSquare(analysis, { r, c }, attackerSide);
+    pressure += attackers.count;
+  }
+  return pressure;
+}
+
 
 function sideOfPiece(piece) {
   if (!piece) return null;
@@ -1045,7 +1188,181 @@ function negamax(state, depth, alpha, beta, ply, context, principalKey) {
   return { score: bestScore, move: bestMove, line: bestLine };
 }
 
-function runFastMove(initialState, side, timeLimitMs) {
+function fastEvaluate(state, perspective, weights) {
+  const board = state.board;
+  const enemy = perspective === 'w' ? 'b' : 'w';
+  const pieceValues = {
+    P: weights.pawnValue,
+    N: weights.knightValue,
+    B: weights.bishopValue,
+    R: weights.rookValue,
+    Q: weights.queenValue,
+    K: 0,
+  };
+
+  let score = 0;
+  const myPieces = [];
+  const enemyPieces = [];
+  const myPawns = [];
+  const enemyPawns = [];
+  const myRooks = [];
+  const enemyRooks = [];
+  const myKnights = [];
+  const enemyKnights = [];
+  const myBishops = [];
+  const enemyBishops = [];
+  let myQueen = null;
+  let enemyQueen = null;
+  let myQueenMoved = false;
+  let enemyQueenMoved = false;
+  const myPawnBoard = Array.from({ length: 8 }, () => Array(8).fill(false));
+  const enemyPawnBoard = Array.from({ length: 8 }, () => Array(8).fill(false));
+  let myKingPos = null;
+  let enemyKingPos = null;
+
+  for (let r = 0; r < 8; r += 1) {
+    for (let c = 0; c < 8; c += 1) {
+      const piece = board[r][c];
+      if (!piece) continue;
+      const type = piece.toUpperCase();
+      const side = piece === piece.toUpperCase() ? 'w' : 'b';
+      const entry = { type, r, c };
+      const value = pieceValues[type] || 0;
+      if (side === perspective) {
+        score += value;
+        myPieces.push(entry);
+        if (type === 'P') {
+          myPawns.push(entry);
+          myPawnBoard[r][c] = true;
+        } else if (type === 'R') {
+          myRooks.push(entry);
+        } else if (type === 'N') {
+          myKnights.push(entry);
+        } else if (type === 'B') {
+          myBishops.push(entry);
+        } else if (type === 'Q') {
+          myQueen = entry;
+          if (!((perspective === 'w' && r === 7 && c === 3) || (perspective === 'b' && r === 0 && c === 3))) {
+            myQueenMoved = true;
+          }
+        } else if (type === 'K') {
+          myKingPos = { r, c };
+        }
+      } else {
+        score -= value;
+        enemyPieces.push(entry);
+        if (type === 'P') {
+          enemyPawns.push(entry);
+          enemyPawnBoard[r][c] = true;
+        } else if (type === 'R') {
+          enemyRooks.push(entry);
+        } else if (type === 'N') {
+          enemyKnights.push(entry);
+        } else if (type === 'B') {
+          enemyBishops.push(entry);
+        } else if (type === 'Q') {
+          enemyQueen = entry;
+          if (!((enemy === 'w' && r === 7 && c === 3) || (enemy === 'b' && r === 0 && c === 3))) {
+            enemyQueenMoved = true;
+          }
+        } else if (type === 'K') {
+          enemyKingPos = { r, c };
+        }
+      }
+    }
+  }
+
+  if (inCheck(state, perspective)) score += weights.checkPenalty;
+  if (inCheck(state, enemy)) score -= weights.checkPenalty;
+
+  if (isCastled(myKingPos, perspective)) score += weights.castleBonus;
+  if (isCastled(enemyKingPos, enemy)) score -= weights.castleBonus;
+
+  const myPawnStats = computePawnStats(myPawns, perspective, enemyPawnBoard);
+  const enemyPawnStats = computePawnStats(enemyPawns, enemy, myPawnBoard);
+
+  score += weights.isolatedPenalty * (myPawnStats.isolated - enemyPawnStats.isolated);
+  score += weights.doubledPenalty * (myPawnStats.doubled - enemyPawnStats.doubled);
+  score += weights.passedBonus * (myPawnStats.passed - enemyPawnStats.passed);
+  score += weights.passedRankBonus * (myPawnStats.passedAdvance - enemyPawnStats.passedAdvance);
+
+  const myMobility = countLegalMovesLimited(state, perspective, 40);
+  const enemyMobility = countLegalMovesLimited(state, enemy, 40);
+  score += weights.mobilityBonus * (myMobility - enemyMobility);
+
+  const myKnightCenter = countKnightsInCenter(myKnights);
+  const enemyKnightCenter = countKnightsInCenter(enemyKnights);
+  score += weights.knightCenterBonus * (myKnightCenter - enemyKnightCenter);
+
+  const myBishopReach = totalBishopReach(board, myBishops);
+  const enemyBishopReach = totalBishopReach(board, enemyBishops);
+  score += weights.bishopActivityBonus * ((myBishopReach - enemyBishopReach) / 4);
+
+  const myRookOpen = rookFileScore(myRooks, myPawnStats.files, enemyPawnStats.files);
+  const enemyRookOpen = rookFileScore(enemyRooks, enemyPawnStats.files, myPawnStats.files);
+  score += weights.rookOpenBonus * (myRookOpen - enemyRookOpen);
+
+  if (state.fullmove <= 10) {
+    if (myQueen && myQueenMoved) score += weights.queenEarlyPenalty;
+    if (enemyQueen && enemyQueenMoved) score -= weights.queenEarlyPenalty;
+  }
+
+  const analysis = { state, attackCache: new Map() };
+
+  let threatScore = 0;
+  for (const piece of enemyPieces) {
+    const attackers = attacksOnSquare(analysis, piece, perspective);
+    if (!attackers.count) continue;
+    const defenders = attacksOnSquare(analysis, piece, enemy);
+    if (defenders.count === 0) {
+      const pieceWeight = pieceValues[piece.type] || 100;
+      threatScore += pieceWeight / 100;
+    }
+  }
+  let enemyThreatScore = 0;
+  for (const piece of myPieces) {
+    const attackers = attacksOnSquare(analysis, piece, enemy);
+    if (!attackers.count) continue;
+    const defenders = attacksOnSquare(analysis, piece, perspective);
+    if (defenders.count === 0) {
+      const pieceWeight = pieceValues[piece.type] || 100;
+      enemyThreatScore += pieceWeight / 100;
+    }
+  }
+  score += weights.attackBonus * threatScore;
+  score -= weights.attackBonus * enemyThreatScore;
+
+  let hangingCount = 0;
+  for (const piece of myPieces) {
+    const attackers = attacksOnSquare(analysis, piece, enemy);
+    if (!attackers.count) continue;
+    const defenders = attacksOnSquare(analysis, piece, perspective);
+    if (attackers.weight > defenders.weight) {
+      const pieceWeight = pieceValues[piece.type] || 100;
+      hangingCount += pieceWeight / 100;
+    }
+  }
+  let enemyHanging = 0;
+  for (const piece of enemyPieces) {
+    const attackers = attacksOnSquare(analysis, piece, perspective);
+    if (!attackers.count) continue;
+    const defenders = attacksOnSquare(analysis, piece, enemy);
+    if (attackers.weight > defenders.weight) {
+      const pieceWeight = pieceValues[piece.type] || 100;
+      enemyHanging += pieceWeight / 100;
+    }
+  }
+  score += weights.hangingPenalty * hangingCount;
+  score -= weights.hangingPenalty * enemyHanging;
+
+  const kingPressure = kingRingPressure(analysis, perspective, enemyKingPos);
+  const enemyPressure = kingRingPressure(analysis, enemy, myKingPos);
+  score += weights.kingRingBonus * (kingPressure - enemyPressure);
+
+  return score;
+}
+
+function runFastMove(initialState, side, timeLimitMs, weights) {
   const moves = generateLegalMoves(initialState);
   const start = performance.now();
   const deadline = timeLimitMs > 0 ? start + timeLimitMs : Infinity;
@@ -1068,30 +1385,21 @@ function runFastMove(initialState, side, timeLimitMs) {
 
   for (const move of moves) {
     if (stopRequested) break;
-    if (performance.now() > deadline) break;
     const nextState = cloneState(initialState);
     makeMove(nextState, move, { skipResult: true });
-    let score = simpleMaterialScore(nextState, side);
-    const replies = generateLegalMoves(nextState);
-    let adjustedScore = score;
-    for (const reply of replies) {
-      if (stopRequested) break;
-      if (!reply.capture) continue;
-      const replyState = cloneState(nextState);
-      makeMove(replyState, reply, { skipResult: true });
-      const replyScore = simpleMaterialScore(replyState, side);
-      if (replyScore < adjustedScore) adjustedScore = replyScore;
-    }
-    if (move.capture) adjustedScore += 10;
-    if (adjustedScore > bestScore) {
-      bestScore = adjustedScore;
+    const score = fastEvaluate(nextState, side, weights);
+    if (!bestMove || score > bestScore) {
       bestMove = move;
+      bestScore = score;
     }
+    if (timeLimitMs > 0 && performance.now() > deadline) break;
   }
 
   if (!bestMove) {
     bestMove = moves[0];
-    bestScore = simpleMaterialScore(initialState, side);
+    const fallbackState = cloneState(initialState);
+    makeMove(fallbackState, bestMove, { skipResult: true });
+    bestScore = fastEvaluate(fallbackState, side, weights);
   }
 
   self.postMessage({
@@ -1185,14 +1493,17 @@ self.addEventListener('message', (event) => {
       depth = 3,
       timeLimitMs = 10000,
       sacrificeBias = 0.25,
+      fastWeights = null,
     } = data;
 
     stopRequested = false;
     aggressionFactor = clamp01(sacrificeBias);
 
+    const weightConfig = sanitizeFastWeights(fastWeights);
+
     if (mode === 'fast') {
       const fastState = cloneState(state);
-      runFastMove(fastState, side, Math.max(0, timeLimitMs));
+      runFastMove(fastState, side, Math.max(0, timeLimitMs), weightConfig);
       return;
     }
 
