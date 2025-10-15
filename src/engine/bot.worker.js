@@ -1,4 +1,4 @@
-﻿import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra } from '../chess/rules.js';
+﻿import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra, pieceAt } from '../chess/rules.js';
 
 let aggressionFactor = 0.25;
 
@@ -28,6 +28,72 @@ function mobilityCount(state, side) {
   return generateLegalMoves(temp).length;
 }
 
+function gatherDefenders(state, side) {
+  const defenders = new Map();
+  const temp = cloneState(state);
+  temp.turn = side;
+  const moves = generateLegalMoves(temp);
+  for (const move of moves) {
+    const key = `${move.to.r},${move.to.c}`;
+    defenders.set(key, (defenders.get(key) || 0) + 1);
+  }
+  return defenders;
+}
+
+function computeExposurePenalty(state, side, defenders) {
+  let penalty = 0;
+  for (let r = 0; r < 8; r += 1) {
+    for (let c = 0; c < 8; c += 1) {
+      const piece = state.board[r][c];
+      if (!piece) continue;
+      const isWhite = piece === piece.toUpperCase();
+      const color = isWhite ? 'w' : 'b';
+      if (color !== side) continue;
+      const value = PIECE_VALUES[piece.toUpperCase()] || 0;
+      if (!value || piece.toUpperCase() === 'K') continue;
+      const defended = defenders.get(`${r},${c}`) || 0;
+      if (defended === 0) {
+        penalty -= value * 0.4;
+      }
+    }
+  }
+  return penalty;
+}
+
+function computeThreatScore(state, perspective, defenders) {
+  const enemy = perspective === 'w' ? 'b' : 'w';
+  const threatState = cloneState(state);
+  threatState.turn = enemy;
+  const enemyMoves = generateLegalMoves(threatState);
+  let threatScore = 0;
+
+  for (const move of enemyMoves) {
+    const captured = pieceAt(state.board, move.to.r, move.to.c);
+    if (captured) {
+      const value = PIECE_VALUES[captured.toUpperCase()] || 0;
+      if (value) {
+        const defended = defenders.get(`${move.to.r},${move.to.c}`) || 0;
+        threatScore -= defended ? value * 0.6 : value * 1.1;
+      }
+    }
+
+    const next = cloneState(state);
+    makeMove(next, move, { skipResult: true });
+    if (inCheck(next, perspective)) {
+      const replyState = cloneState(next);
+      replyState.turn = perspective;
+      const replies = generateLegalMoves(replyState);
+      if (replies.length === 0) {
+        threatScore -= 10000;
+      } else {
+        threatScore -= 300;
+      }
+    }
+  }
+
+  return threatScore;
+}
+
 function evaluate(state, perspective) {
   const material = baseEvaluation(state);
   const perspectiveMaterial = perspective === 'w' ? material : -material;
@@ -35,16 +101,18 @@ function evaluate(state, perspective) {
   const myMobility = mobilityCount(state, perspective);
   const oppMobility = mobilityCount(state, perspective === 'w' ? 'b' : 'w');
   const positionalDiff = myMobility - oppMobility;
-  const positionalScore = positionalDiff * 4;
+  const positionalScore = positionalDiff * 3;
+
+  const defenders = gatherDefenders(state, perspective);
+  const threatScore = computeThreatScore(state, perspective, defenders);
+  const exposurePenalty = computeExposurePenalty(state, perspective, defenders);
 
   let sacrificeBonus = 0;
-  if (positionalScore > 0 && perspectiveMaterial < 0) {
-    sacrificeBonus = aggressionFactor * Math.min(Math.abs(perspectiveMaterial), positionalScore);
-  } else if (positionalScore < 0 && perspectiveMaterial > 0) {
-    sacrificeBonus = -aggressionFactor * Math.min(perspectiveMaterial, Math.abs(positionalScore));
+  if (positionalDiff > 0 && perspectiveMaterial < 0) {
+    sacrificeBonus = aggressionFactor * Math.min(Math.abs(perspectiveMaterial), Math.abs(positionalDiff) * 50);
   }
 
-  return perspectiveMaterial + positionalScore + sacrificeBonus;
+  return perspectiveMaterial + positionalScore + sacrificeBonus + threatScore + exposurePenalty;
 }
 
 function orderMoves(moves) {
@@ -167,8 +235,7 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
       bestScore = score;
       bestMove = move;
     }
-    if (elapsed >= window) break;
-    if (window === 0 && samples >= 1) break;
+    if (elapsed >= window || (window === 0 && samples >= 1)) break;
   }
 
   self.postMessage({
@@ -253,3 +320,4 @@ self.addEventListener('message', (event) => {
     reportError(err);
   }
 });
+
