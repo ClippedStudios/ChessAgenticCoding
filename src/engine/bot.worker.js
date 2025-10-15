@@ -248,6 +248,20 @@ const PST_EG = {
   ],
 };
 
+function simpleMaterialScore(state, perspective) {
+  let total = 0;
+  for (let r = 0; r < 8; r += 1) {
+    const row = state.board[r];
+    for (let c = 0; c < 8; c += 1) {
+      const piece = row[c];
+      if (!piece) continue;
+      const value = PIECE_VALUES[piece.toUpperCase()] || 0;
+      total += piece === piece.toUpperCase() ? value : -value;
+    }
+  }
+  return perspective === 'w' ? total : -total;
+}
+
 function sideOfPiece(piece) {
   if (!piece) return null;
   return piece === piece.toUpperCase() ? 'w' : 'b';
@@ -1031,6 +1045,66 @@ function negamax(state, depth, alpha, beta, ply, context, principalKey) {
   return { score: bestScore, move: bestMove, line: bestLine };
 }
 
+function runFastMove(initialState, side, timeLimitMs) {
+  const moves = generateLegalMoves(initialState);
+  const start = performance.now();
+  const deadline = timeLimitMs > 0 ? start + timeLimitMs : Infinity;
+
+  if (!moves.length) {
+    self.postMessage({
+      type: 'result',
+      move: null,
+      line: [],
+      moveNotation: '',
+      lineNotation: [],
+      score: 0,
+      elapsed: 0,
+    });
+    return;
+  }
+
+  let bestMove = null;
+  let bestScore = -Infinity;
+
+  for (const move of moves) {
+    if (stopRequested) break;
+    if (performance.now() > deadline) break;
+    const nextState = cloneState(initialState);
+    makeMove(nextState, move, { skipResult: true });
+    let score = simpleMaterialScore(nextState, side);
+    const replies = generateLegalMoves(nextState);
+    let adjustedScore = score;
+    for (const reply of replies) {
+      if (stopRequested) break;
+      if (!reply.capture) continue;
+      const replyState = cloneState(nextState);
+      makeMove(replyState, reply, { skipResult: true });
+      const replyScore = simpleMaterialScore(replyState, side);
+      if (replyScore < adjustedScore) adjustedScore = replyScore;
+    }
+    if (move.capture) adjustedScore += 10;
+    if (adjustedScore > bestScore) {
+      bestScore = adjustedScore;
+      bestMove = move;
+    }
+  }
+
+  if (!bestMove) {
+    bestMove = moves[0];
+    bestScore = simpleMaterialScore(initialState, side);
+  }
+
+  self.postMessage({
+    type: 'result',
+    move: bestMove,
+    line: bestMove ? [bestMove] : [],
+    moveNotation: moveToNotation(bestMove),
+    lineNotation: bestMove ? [moveToNotation(bestMove)] : [],
+    score: bestScore,
+    elapsed: performance.now() - start,
+  });
+}
+
 function runSearch(initialState, side, depthLimit, timeLimitMs) {
   const context = createSearchContext(side, timeLimitMs);
   const rootMoves = generateLegalMoves(initialState);
@@ -1107,6 +1181,7 @@ self.addEventListener('message', (event) => {
     const {
       state,
       side,
+      mode = 'strategic',
       depth = 3,
       timeLimitMs = 10000,
       sacrificeBias = 0.25,
@@ -1114,6 +1189,12 @@ self.addEventListener('message', (event) => {
 
     stopRequested = false;
     aggressionFactor = clamp01(sacrificeBias);
+
+    if (mode === 'fast') {
+      const fastState = cloneState(state);
+      runFastMove(fastState, side, Math.max(0, timeLimitMs));
+      return;
+    }
 
     const searchState = cloneState(state);
     const result = runSearch(searchState, side, Math.max(1, depth), Math.max(0, timeLimitMs));
