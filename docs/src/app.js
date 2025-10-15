@@ -29,7 +29,7 @@ function init() {
   let game;
   let bot;
   let playerSide = 'w';
-  let botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));\n    botThinking = false;
+  let botThinking = false;
   let botModeSetting = 'search';
   let botBudgetMs = BOT_MOVE_TIME_MS;
   let botAggression = 0.25;
@@ -100,7 +100,8 @@ function init() {
         depth: BOT_DEPTH,
         timeMs: timeBudget,
         sampleWindowMs: timeBudget,
-        onUpdate: handleUpdate,\n        sacrificeBias: botAggression,
+        sacrificeBias: botAggression,
+        onUpdate: handleUpdate,
       });
 
       if (move) {
@@ -114,7 +115,7 @@ function init() {
       setStatus('Bot move failed - you win by error');
       analysisDisplay.clear({ infoText: 'Bot encountered an error.' });
     } finally {
-      botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));\n    botThinking = false;
+      botThinking = false;
       if (!game.getResult()) {
         setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
       }
@@ -134,7 +135,8 @@ function init() {
     botModeSetting = mode;
     const seconds = Number.isFinite(sampleSeconds) ? sampleSeconds : DEFAULT_SAMPLE_SECONDS;
     botBudgetMs = Math.max(1, Math.min(30, seconds)) * 1000;
-    botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));\n    botThinking = false;
+    botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));
+    botThinking = false;
 
     game = createGame();
     bot = new Bot(playerSide === 'w' ? 'b' : 'w');
@@ -215,5 +217,3 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
-
-
