@@ -88,6 +88,25 @@ const NEG_INF = -1_000_000_000;
 const POS_INF = 1_000_000_000;
 const PV_UPDATE_INTERVAL_MS = 140;
 
+function encodeStateKey(state) {
+  let key = state.turn;
+  for (let r = 0; r < 8; r += 1) {
+    const row = state.board[r];
+    for (let c = 0; c < 8; c += 1) {
+      key += row[c] || '.';
+    }
+  }
+  key += state.castling.K ? 'K' : '';
+  key += state.castling.Q ? 'Q' : '';
+  key += state.castling.k ? 'k' : '';
+  key += state.castling.q ? 'q' : '';
+  if (state.ep) {
+    key += `e${state.ep.r}${state.ep.c}`;
+  }
+  key += `:${state.halfmove}:${state.fullmove}`;
+  return key;
+}
+
 function clamp01(value) {
   if (Number.isNaN(value)) return 0;
   return Math.max(0, Math.min(1, value));
@@ -258,8 +277,12 @@ function isOnHomeSquare(type, side, r, c) {
   return false;
 }
 
-function attacksOnSquare(state, target, side) {
-  const { board } = state;
+function attacksOnSquare(analysis, target, side) {
+  const cacheKey = `${side}:${target.r}${target.c}`;
+  const cached = analysis.attackCache.get(cacheKey);
+  if (cached) return cached;
+
+  const { board } = analysis.state;
   const { r, c } = target;
   let count = 0;
   let weight = 0;
@@ -347,11 +370,13 @@ function attacksOnSquare(state, target, side) {
     }
   }
 
-  return {
+  const result = {
     count,
     weight,
     minValue: minValue === Infinity ? 0 : minValue,
   };
+  analysis.attackCache.set(cacheKey, result);
+  return result;
 }
 
 function mobilityFrom(state, r, c, type, side) {
@@ -465,7 +490,8 @@ function pawnShield(board, kingPos, side) {
   return score;
 }
 
-function assessKingPressure(state, sideInfo, enemyInfo) {
+function assessKingPressure(analysis, sideInfo, enemyInfo) {
+  const state = analysis.state;
   const board = state.board;
   let pressure = 0;
   let safety = 0;
@@ -473,8 +499,8 @@ function assessKingPressure(state, sideInfo, enemyInfo) {
 
   if (sideInfo.king) {
     const target = sideInfo.king;
-    const incoming = attacksOnSquare(state, target, enemyColor);
-    const defenders = attacksOnSquare(state, target, sideInfo.color);
+    const incoming = attacksOnSquare(analysis, target, enemyColor);
+    const defenders = attacksOnSquare(analysis, target, sideInfo.color);
     safety += pawnShield(board, sideInfo.king, sideInfo.color);
     safety += defenders.weight * 0.08;
     safety -= incoming.weight * 0.1 + incoming.count * 10;
@@ -483,7 +509,7 @@ function assessKingPressure(state, sideInfo, enemyInfo) {
       const rr = target.r + dr;
       const cc = target.c + dc;
       if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
-      const adj = attacksOnSquare(state, { r: rr, c: cc }, enemyColor);
+      const adj = attacksOnSquare(analysis, { r: rr, c: cc }, enemyColor);
       safety -= adj.weight * 0.04;
       if (adj.count > 0) safety -= 4;
     }
@@ -495,14 +521,14 @@ function assessKingPressure(state, sideInfo, enemyInfo) {
       const rr = enemyKing.r + dr;
       const cc = enemyKing.c + dc;
       if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
-      const attackers = attacksOnSquare(state, { r: rr, c: cc }, sideInfo.color);
-      const defenders = attacksOnSquare(state, { r: rr, c: cc }, enemyColor);
+      const attackers = attacksOnSquare(analysis, { r: rr, c: cc }, sideInfo.color);
+      const defenders = attacksOnSquare(analysis, { r: rr, c: cc }, enemyColor);
       if (attackers.count) {
         pressure += Math.max(0, attackers.weight - defenders.weight * 0.7) * 0.2;
         pressure += attackers.count * 4;
       }
     }
-    const direct = attacksOnSquare(state, enemyKing, sideInfo.color);
+    const direct = attacksOnSquare(analysis, enemyKing, sideInfo.color);
     if (direct.count) {
       pressure += direct.weight * 0.4 + 18;
     }
@@ -510,7 +536,7 @@ function assessKingPressure(state, sideInfo, enemyInfo) {
       const rr = enemyKing.r + delta.dr;
       const cc = enemyKing.c + delta.dc;
       if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
-      const attackers = attacksOnSquare(state, { r: rr, c: cc }, sideInfo.color);
+      const attackers = attacksOnSquare(analysis, { r: rr, c: cc }, sideInfo.color);
       if (attackers.count) pressure += attackers.weight * 0.05;
     }
   }
@@ -522,16 +548,16 @@ function assessKingPressure(state, sideInfo, enemyInfo) {
   return { pressure, safety };
 }
 
-function evaluateTactics(state, sideInfo, enemyInfo) {
-  const board = state.board;
+function evaluateTactics(analysis, sideInfo, enemyInfo) {
+  const board = analysis.state.board;
   const enemyColor = enemyInfo.color;
   const side = sideInfo.color;
   let score = 0;
 
   for (const enemyPiece of enemyInfo.pieces) {
-    const attackers = attacksOnSquare(state, { r: enemyPiece.r, c: enemyPiece.c }, side);
+    const attackers = attacksOnSquare(analysis, { r: enemyPiece.r, c: enemyPiece.c }, side);
     if (!attackers.count) continue;
-    const defenders = attacksOnSquare(state, { r: enemyPiece.r, c: enemyPiece.c }, enemyColor);
+    const defenders = attacksOnSquare(analysis, { r: enemyPiece.r, c: enemyPiece.c }, enemyColor);
     const net = attackers.weight - defenders.weight;
     if (net > 0) {
       score += Math.min(enemyPiece.value, net) * 0.12 + 6;
@@ -573,18 +599,18 @@ function evaluateTactics(state, sideInfo, enemyInfo) {
     }
   }
 
-  if (enemyInfo.king && inCheck(state, enemyColor)) {
+  if (enemyInfo.king && inCheck(analysis.state, enemyColor)) {
     score += 30;
   }
 
   return score;
 }
 
-function assessCoordination(state, sideInfo) {
+function assessCoordination(analysis, sideInfo) {
   let coord = 0;
   for (const piece of sideInfo.pieces) {
     if (piece.type === 'P') continue;
-    const defenders = attacksOnSquare(state, { r: piece.r, c: piece.c }, sideInfo.color);
+    const defenders = attacksOnSquare(analysis, { r: piece.r, c: piece.c }, sideInfo.color);
     if (defenders.count) coord += defenders.count * 6;
     else coord -= 6;
   }
@@ -621,19 +647,19 @@ function evaluatePawnStructure(state, sideInfo, enemyInfo) {
   return score;
 }
 
-function evaluateCentralControl(state, sideInfo, enemyInfo) {
-  const board = state.board;
+function evaluateCentralControl(analysis, sideInfo, enemyInfo) {
+  const board = analysis.state.board;
   let score = 0;
   for (const square of CENTER_SQUARES) {
-    const attacker = attacksOnSquare(state, square, sideInfo.color);
-    const defender = attacksOnSquare(state, square, enemyInfo.color);
+    const attacker = attacksOnSquare(analysis, square, sideInfo.color);
+    const defender = attacksOnSquare(analysis, square, enemyInfo.color);
     if (attacker.count) score += attacker.weight * 0.12 + 6;
     score -= defender.count * 2;
     const piece = board[square.r][square.c];
     if (piece && sideOfPiece(piece) === sideInfo.color) score += 10;
   }
   for (const square of EXTENDED_CENTER) {
-    const attacker = attacksOnSquare(state, square, sideInfo.color);
+    const attacker = attacksOnSquare(analysis, square, sideInfo.color);
     if (attacker.count) score += attacker.weight * 0.05;
   }
   return score;
@@ -732,6 +758,7 @@ function collectBoardInfo(state) {
 
 function evaluateWhitePerspective(state) {
   const { white, black, mgWeight, egWeight } = collectBoardInfo(state);
+  const analysis = { state, attackCache: new Map() };
 
   const materialMg = (white.material + white.mgPst) - (black.material + black.mgPst);
   const materialEg = (white.material + white.egPst) - (black.material + black.egPst);
@@ -743,17 +770,17 @@ function evaluateWhitePerspective(state) {
   const pawnStructureScore =
     evaluatePawnStructure(state, white, black) - evaluatePawnStructure(state, black, white);
   const centralControlScore =
-    evaluateCentralControl(state, white, black) - evaluateCentralControl(state, black, white);
+    evaluateCentralControl(analysis, white, black) - evaluateCentralControl(analysis, black, white);
   const openFileScore = evaluateOpenFiles(white, black) - evaluateOpenFiles(black, white);
-  const coordinationScore = assessCoordination(state, white) - assessCoordination(state, black);
+  const coordinationScore = assessCoordination(analysis, white) - assessCoordination(analysis, black);
 
-  const whiteKP = assessKingPressure(state, white, black);
-  const blackKP = assessKingPressure(state, black, white);
+  const whiteKP = assessKingPressure(analysis, white, black);
+  const blackKP = assessKingPressure(analysis, black, white);
   const kingSafetyScore = (whiteKP.safety - blackKP.safety) * (0.7 * mgWeight + 0.3);
   const attackPressureScore = (whiteKP.pressure - blackKP.pressure) * (1 + aggressionFactor * 0.7);
 
   const tacticalScore =
-    evaluateTactics(state, white, black) - evaluateTactics(state, black, white);
+    evaluateTactics(analysis, white, black) - evaluateTactics(analysis, black, white);
 
   const passedPawnScale = 0.6 + egWeight * 0.6;
   const whitePassed = white.pawns.reduce(
@@ -786,9 +813,14 @@ function evaluateWhitePerspective(state) {
   );
 }
 
-function evaluateForTurn(state) {
+function evaluateForTurn(state, context) {
+  const cache = context?.evalCache;
+  const key = cache ? encodeStateKey(state) : null;
+  if (key && cache.has(key)) return cache.get(key);
   const whiteScore = evaluateWhitePerspective(state);
-  return state.turn === 'w' ? whiteScore : -whiteScore;
+  const score = state.turn === 'w' ? whiteScore : -whiteScore;
+  if (key) cache.set(key, score);
+  return score;
 }
 
 function moveToNotation(move) {
@@ -814,6 +846,8 @@ function createSearchContext(botSide, timeLimitMs) {
     lastPvPost: 0,
     nodes: 0,
     stopped: false,
+    evalCache: new Map(),
+    rootBranching: 0,
   };
 }
 
@@ -878,19 +912,20 @@ function isHangingQueenMove(state, move) {
   const next = cloneState(state);
   makeMove(next, move, { skipResult: true });
   const enemy = side === 'w' ? 'b' : 'w';
-  const attackers = attacksOnSquare(next, move.to, enemy);
+  const analysis = { state: next, attackCache: new Map() };
+  const attackers = attacksOnSquare(analysis, move.to, enemy);
   if (!attackers.count) return false;
-  const defenders = attacksOnSquare(next, move.to, side);
+  const defenders = attacksOnSquare(analysis, move.to, side);
   if (defenders.count === 0 || attackers.weight > defenders.weight + PIECE_VALUES.Q * 0.5) return true;
   return false;
 }
 
 function quiescence(state, alpha, beta, depth, context) {
   if (shouldStop(context)) {
-    return { score: evaluateForTurn(state), line: [], timedOut: true };
+    return { score: evaluateForTurn(state, context), line: [], timedOut: true };
   }
 
-  const standPat = evaluateForTurn(state);
+  const standPat = evaluateForTurn(state, context);
   if (standPat >= beta) return { score: standPat, line: [] };
   let currentAlpha = alpha;
   if (standPat > currentAlpha) currentAlpha = standPat;
@@ -924,7 +959,7 @@ function quiescence(state, alpha, beta, depth, context) {
 
 function negamax(state, depth, alpha, beta, ply, context, principalKey) {
   if (shouldStop(context)) {
-    return { score: evaluateForTurn(state), line: [], timedOut: true };
+    return { score: evaluateForTurn(state, context), line: [], timedOut: true };
   }
 
   context.nodes += 1;
@@ -948,7 +983,7 @@ function negamax(state, depth, alpha, beta, ply, context, principalKey) {
   for (const move of ordered) {
     if (shouldStop(context)) {
       return {
-        score: bestScore !== NEG_INF ? bestScore : evaluateForTurn(state),
+        score: bestScore !== NEG_INF ? bestScore : evaluateForTurn(state, context),
         line: bestLine,
         timedOut: true,
       };
@@ -998,16 +1033,31 @@ function negamax(state, depth, alpha, beta, ply, context, principalKey) {
 
 function runSearch(initialState, side, depthLimit, timeLimitMs) {
   const context = createSearchContext(side, timeLimitMs);
+  const rootMoves = generateLegalMoves(initialState);
+  context.rootBranching = rootMoves.length;
+
+  let adjustedDepth = Math.max(1, depthLimit);
+  if (rootMoves.length >= 32) adjustedDepth = Math.max(2, adjustedDepth - 1);
+  if (rootMoves.length >= 44) adjustedDepth = Math.max(1, adjustedDepth - 1);
+  if (timeLimitMs > 0) {
+    if (timeLimitMs < 4000) adjustedDepth = Math.min(adjustedDepth, 2);
+    if (timeLimitMs < 2500) adjustedDepth = Math.min(adjustedDepth, 1);
+  }
+  if (rootMoves.length <= 14 && timeLimitMs > 6000 && adjustedDepth < depthLimit) {
+    adjustedDepth = Math.min(depthLimit, adjustedDepth + 1);
+  }
+  const maxDepth = Math.max(1, adjustedDepth);
+
   let bestMove = null;
   let bestLine = [];
-  let bestScore = evaluateForTurn(initialState);
+  let bestScore = evaluateForTurn(initialState, context);
 
   let currentDepth = 1;
-  while (currentDepth <= depthLimit) {
+  while (currentDepth <= maxDepth) {
+    if (context.stopped) break;
     const searchState = cloneState(initialState);
     const principalKey = bestLine.length ? moveKey(bestLine[0]) : null;
     const result = negamax(searchState, currentDepth, NEG_INF, POS_INF, 0, context, principalKey);
-    if (result.timedOut) break;
     if (result.move) {
       bestMove = result.move;
       bestLine = result.line && result.line.length ? result.line : [result.move];
@@ -1023,7 +1073,7 @@ function runSearch(initialState, side, depthLimit, timeLimitMs) {
       score: side === 'w' ? bestScore : -bestScore,
       elapsed: now - context.startTime,
     });
-    if (shouldStop(context)) break;
+    if (result.timedOut || context.stopped) break;
     currentDepth += 1;
   }
 
