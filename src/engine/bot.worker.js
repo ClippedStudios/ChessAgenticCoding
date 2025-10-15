@@ -1,6 +1,7 @@
 ﻿import { generateLegalMoves, makeMove, cloneState, inCheck, rcToAlgebra, pieceAt } from '../chess/rules.js';
 
 let aggressionFactor = 0.25;
+let stopRequested = false;
 
 const PIECE_VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 };
 
@@ -144,7 +145,7 @@ function moveToNotation(move) {
 }
 
 function minimax(state, depth, alpha, beta, botSide, start, timeLimitMs) {
-  if (timeLimitMs && performance.now() - start > timeLimitMs) {
+  if (stopRequested || (timeLimitMs && performance.now() - start > timeLimitMs)) {
     return { score: evaluate(state, botSide), move: null, line: [], timedOut: true };
   }
 
@@ -166,6 +167,7 @@ function minimax(state, depth, alpha, beta, botSide, start, timeLimitMs) {
   let bestLine = [];
 
   for (const move of moves) {
+    if (stopRequested) break;
     const next = cloneState(state);
     makeMove(next, move, { skipResult: true });
     const child = minimax(next, depth - 1, alpha, beta, botSide, start, timeLimitMs);
@@ -225,7 +227,7 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
   let samples = 0;
   const window = Math.max(0, sampleWindowMs);
 
-  while (true) {
+  while (!stopRequested) {
     const elapsedBefore = performance.now() - start;
     if (elapsedBefore >= window && samples > 0) break;
     const move = legal[Math.floor(Math.random() * legal.length)];
@@ -247,7 +249,7 @@ function runRandomSampling(state, side, sampleWindowMs = 2000) {
       bestScore = score;
       bestMove = move;
     }
-    if (elapsed >= window && samples > 0) break;
+    if ((elapsed >= window && samples > 0) || stopRequested) break;
   }
 
   self.postMessage({
@@ -272,7 +274,12 @@ function reportError(err) {
 self.addEventListener('message', (event) => {
   try {
     const { data } = event;
-    if (!data || data.type !== 'analyze') return;
+    if (!data) return;
+    if (data.type === 'stop') {
+      stopRequested = true;
+      return;
+    }
+    if (data.type !== 'analyze') return;
 
     const {
       state,
@@ -285,6 +292,7 @@ self.addEventListener('message', (event) => {
     } = data;
 
     aggressionFactor = clamp01(sacrificeBias);
+    stopRequested = false;
 
     if (mode === 'random') {
       runRandomSampling(state, side, sampleWindowMs);

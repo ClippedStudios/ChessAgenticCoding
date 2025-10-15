@@ -45,16 +45,27 @@ export class Bot {
     const statePayload = serializeState(game.state);
 
     return new Promise((resolve, reject) => {
-      const timer =
+      const resultTimer =
         timeMs > 0
           ? setTimeout(() => {
               cleanup();
               resolve(null);
             }, timeMs + 500)
           : null;
+      const forceStopTimer =
+        timeMs > 0
+          ? setTimeout(() => {
+              try {
+                this.worker.postMessage({ type: 'stop' });
+              } catch (err) {
+                // ignore post errors
+              }
+            }, timeMs)
+          : null;
 
       const cleanup = () => {
-        if (timer) clearTimeout(timer);
+        if (resultTimer) clearTimeout(resultTimer);
+        if (forceStopTimer) clearTimeout(forceStopTimer);
         this.worker.removeEventListener('message', handleMessage);
         this.worker.removeEventListener('error', handleError);
       };
