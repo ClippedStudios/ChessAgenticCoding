@@ -34,6 +34,7 @@ export class Bot {
       config = {};
     }
     const {
+      mode = 'strategic',
       depth = 3,
       timeMs = 10000,
       sacrificeBias = 0.25,
@@ -96,6 +97,7 @@ export class Bot {
       this.worker.addEventListener('error', handleError);
       this.worker.postMessage({
         type: 'analyze',
+        mode,
         state: statePayload,
         side: this.side,
         depth,
