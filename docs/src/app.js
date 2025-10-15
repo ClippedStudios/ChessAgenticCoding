@@ -5,6 +5,8 @@ import { cloneState } from './chess/rules.js';
 import { createAnalysisDisplay } from './ui/analysisBoard.js';
 
 const BOT_DEPTH = 3;
+const BOT_MIN_DEPTH = 1;
+const BOT_MAX_DEPTH = 5;
 const BOT_MOVE_TIME_MS = 10000;
 const DEFAULT_THINK_SECONDS = 6;
 
@@ -33,6 +35,8 @@ function init() {
   let botThinking = false;
   let botBudgetMs = BOT_MOVE_TIME_MS;
   let botAggression = 0.25;
+  let botModeSetting = 'strategic';
+  let botDepthSetting = BOT_DEPTH;
   const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 320 });
   let analysisTimerInterval = null;
   let analysisTimerDeadline = null;
@@ -100,33 +104,37 @@ function init() {
     if (game.state.turn === playerSide) return;
 
     botThinking = true;
-    setStatus('Bot thinking...');
+    const statusText = botModeSetting === 'fast' ? 'Fast bot thinking...' : 'Bot thinking...';
+    setStatus(statusText);
     const baseState = cloneState(game.state);
-    analysisDisplay.showPosition(baseState, { infoText: 'Exploring moves...' });
+    const infoText = botModeSetting === 'fast' ? 'Quick scan...' : 'Exploring moves...';
+    analysisDisplay.showPosition(baseState, { infoText });
     let updateCount = 0;
 
     const handleUpdate = (payload) => {
-      if (!payload) return;
+      if (!payload || botModeSetting !== 'strategic') return;
       if (payload.type === 'pv') {
         updateCount += 1;
         const moveLabel = payload.currentMove ? ` ${payload.currentMove}` : '';
-        const infoText = `Line #${updateCount} depth ${payload.depth}${moveLabel} eval ${formatEval(payload.score, bot.side)}`;
-        analysisDisplay.queueLine(baseState, payload.line || [], { infoText });
+        const lineInfo = `Line #${updateCount} depth ${payload.depth}${moveLabel} eval ${formatEval(payload.score, bot.side)}`;
+        analysisDisplay.queueLine(baseState, payload.line || [], { infoText: lineInfo });
       }
     };
 
     try {
       const sideMs = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
-      const minBudget = 500;
+      const minBudget = botModeSetting === 'fast' ? 150 : 500;
       const targetBudget = Math.max(minBudget, botBudgetMs);
       const timeBudget = Math.max(minBudget, Math.min(targetBudget, sideMs || targetBudget));
       await new Promise((resolve) => requestAnimationFrame(resolve));
       startAnalysisTimer(timeBudget);
+      const depthToUse = botModeSetting === 'strategic' ? botDepthSetting : 1;
       const move = await bot.chooseMove(game, {
-        depth: BOT_DEPTH,
+        mode: botModeSetting,
+        depth: depthToUse,
         timeMs: timeBudget,
         sacrificeBias: botAggression,
-        onUpdate: handleUpdate,
+        onUpdate: botModeSetting === 'strategic' ? handleUpdate : undefined,
       });
 
       if (move) {
@@ -146,18 +154,24 @@ function init() {
         setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
       }
       if (game) {
-        analysisDisplay.showPosition(cloneState(game.state), {
-          infoText: game.getResult() ? 'Bot finished.' : 'Ready for your move.',
-        });
+        const finishInfo = game.getResult()
+          ? 'Bot finished.'
+          : botModeSetting === 'fast'
+            ? 'Fast bot finished.'
+            : 'Ready for your move.';
+        analysisDisplay.showPosition(cloneState(game.state), { infoText: finishInfo });
       }
       checkResult();
     }
   };
 
-  const startNewGame = ({ side, sampleSeconds, sacrificeValue }) => {
+  const startNewGame = ({ side, mode, sampleSeconds, sacrificeValue, depth }) => {
     if (bot) bot.dispose();
 
     playerSide = side;
+    botModeSetting = mode === 'fast' ? 'fast' : 'strategic';
+    const depthValue = Number.isFinite(depth) ? depth : BOT_DEPTH;
+    botDepthSetting = Math.max(BOT_MIN_DEPTH, Math.min(BOT_MAX_DEPTH, depthValue));
     const seconds = Number.isFinite(sampleSeconds) ? sampleSeconds : DEFAULT_THINK_SECONDS;
     botBudgetMs = Math.max(1, Math.min(30, seconds)) * 1000;
     botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));
@@ -186,7 +200,8 @@ function init() {
 
     movesEl.innerHTML = '';
     setStatus(playerSide === 'w' ? 'White to move' : 'Black to move');
-    analysisDisplay.showPosition(cloneState(game.state), { infoText: 'Waiting for bot...' });
+    const waitingInfo = botModeSetting === 'fast' ? 'Fast bot warming up...' : 'Waiting for bot...';
+    analysisDisplay.showPosition(cloneState(game.state), { infoText: waitingInfo });
     dlg.close();
 
     maybeBotMove();
@@ -194,6 +209,9 @@ function init() {
 
   const sacrificeSlider = form.elements.namedItem('sacrificeBias');
   const sacrificeLabel = document.getElementById('sacrificeLabel');
+  const botStyleSelect = form.elements.namedItem('botStyle');
+  const botDepthInput = form.elements.namedItem('botDepth');
+  const depthHint = document.getElementById('depthHint');
 
   const describeAggression = (value) => {
     if (value <= 5) return 'None';
@@ -212,17 +230,58 @@ function init() {
     syncLabel();
   }
 
+  if (botDepthInput) {
+    const clampDepth = (value) => {
+      const numeric = Number.isFinite(value) ? value : BOT_DEPTH;
+      const bounded = Math.max(BOT_MIN_DEPTH, Math.min(BOT_MAX_DEPTH, Math.round(numeric)));
+      return bounded;
+    };
+
+    const syncDepthState = () => {
+      if (!botDepthInput) return;
+      const isStrategic = !botStyleSelect || botStyleSelect.value !== 'fast';
+      botDepthInput.disabled = !isStrategic;
+      const value = Number.parseInt(botDepthInput.value, 10);
+      botDepthInput.value = clampDepth(value);
+      if (depthHint) {
+        depthHint.textContent = isStrategic
+          ? 'Used only for the strategic bot.'
+          : 'Depth is fixed for the fast bot.';
+      }
+    };
+
+    botDepthInput.addEventListener('change', () => {
+      botDepthInput.value = clampDepth(Number.parseInt(botDepthInput.value, 10));
+    });
+
+    if (botStyleSelect) {
+      botStyleSelect.addEventListener('change', syncDepthState);
+    }
+
+    syncDepthState();
+  }
+
   newGameBtn.addEventListener('click', () => dlg.showModal());
 
   startGameBtn.addEventListener('click', (event) => {
     event.preventDefault();
     const sideInput = form.elements.namedItem('side');
     const side = sideInput ? sideInput.value : 'w';
+    const styleInput = form.elements.namedItem('botStyle');
+    const mode = styleInput ? styleInput.value : 'strategic';
     const secondsInput = form.elements.namedItem('sampleSeconds');
     const sampleSeconds = secondsInput ? parseFloat(secondsInput.value) : DEFAULT_THINK_SECONDS;
+    const depthInput = form.elements.namedItem('botDepth');
+    const depthValue = depthInput ? parseFloat(depthInput.value) : BOT_DEPTH;
     const sacrificeInput = form.elements.namedItem('sacrificeBias');
     const sacrificeValue = sacrificeInput ? parseFloat(sacrificeInput.value) : 25;
-    startNewGame({ side: side || 'w', sampleSeconds, sacrificeValue });
+    startNewGame({
+      side: side || 'w',
+      mode,
+      sampleSeconds,
+      sacrificeValue,
+      depth: depthValue,
+    });
   });
 
   resignBtn.addEventListener('click', () => {
