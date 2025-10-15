@@ -25,7 +25,14 @@ export class Bot {
 
   chooseMove(game, options = {}) {
     this.ensureWorker();
-    const config = typeof options === 'number' ? { depth: options } : { ...options };
+    let config;
+    if (typeof options === 'number') {
+      config = { depth: options };
+    } else if (options && typeof options === 'object') {
+      config = Object.assign({}, options);
+    } else {
+      config = {};
+    }
     const {
       mode = 'search',
       depth = 2,
