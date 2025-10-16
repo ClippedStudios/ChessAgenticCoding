@@ -1446,6 +1446,7 @@ function runFastMove(initialState, side, timeLimitMs, weights) {
 
   for (const move of moves) {
     if (stopRequested) break;
+    if (timeLimitMs > 0 && performance.now() > deadline) break;
     const nextState = cloneState(initialState);
     makeMove(nextState, move, { skipResult: true });
     const score = fastEvaluate(nextState, side, weights);
@@ -1453,7 +1454,6 @@ function runFastMove(initialState, side, timeLimitMs, weights) {
       bestMove = move;
       bestScore = score;
     }
-    if (timeLimitMs > 0 && performance.now() > deadline) break;
   }
 
   if (!bestMove) {
