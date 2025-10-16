@@ -446,6 +446,14 @@ function chooseBestMove(state, side, timeLimitMs, weights) {
         adjustedGain += see;
       }
     }
+    const opponent = nextState.turn;
+    const opponentMoves = generateLegalMoves(nextState);
+    const opponentInCheck = inCheck(nextState, opponent);
+    if (opponentInCheck && opponentMoves.length === 0) {
+      adjustedGain += 100000;
+    } else if (opponentInCheck) {
+      adjustedGain += weights.checkBonus || 0;
+    }
     const friendlySide = nextState.turn === 'w' ? 'b' : 'w';
     for (let r = 0; r < 8; r += 1) {
       for (let c = 0; c < 8; c += 1) {
