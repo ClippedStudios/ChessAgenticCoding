@@ -1,11 +1,7 @@
 import { createBoardUI } from './ui/board.js';
 import { createGame } from './chess/game.js';
 import { Bot } from './engine/bot.js';
-import { cloneState } from './chess/rules.js';
-import { createAnalysisDisplay } from './ui/analysisBoard.js';
 
-const BOT_MOVE_TIME_MS = 10000;
-const DEFAULT_THINK_SECONDS = 6;
 const DEFAULT_FAST_WEIGHTS = {
   pawnValue: 100,
   knightValue: 320,
@@ -120,54 +116,39 @@ function init() {
 
     botThinking = true;
     setStatus('Bot thinking...');
-    const baseState = cloneState(game.state);
-    analysisDisplay.showPosition(baseState, { infoText: 'Quick scan...' });
 
     try {
-      const sideMs = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
-      const minBudget = 100;
-      const targetBudget = Math.max(minBudget, botBudgetMs);
-      const timeBudget = Math.max(minBudget, Math.min(targetBudget, sideMs || targetBudget));
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      startAnalysisTimer(timeBudget);
       const move = await bot.chooseMove(game, {
-        timeMs: timeBudget,
+        timeMs: 0,
         fastWeights: botFastWeights,
       });
 
       if (move) {
         const result = game.playMove(move);
-        ui.render(game);
-        appendMoveSAN(result.san);
+        if (result) {
+          ui.render(game);
+          appendMoveSAN(result.san);
+        }
       }
     } catch (err) {
       console.error('Bot move failed', err);
       game.state.result = { outcome: 'error', message: 'Bot failed to move' };
       setStatus('Bot move failed - you win by error');
-      analysisDisplay.clear({ infoText: 'Bot encountered an error.' });
     } finally {
-      stopAnalysisTimer(true);
       botThinking = false;
       if (!game.getResult()) {
         setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
-      }
-      if (game) {
-        const finishInfo = game.getResult() ? 'Bot finished.' : 'Ready for your move.';
-        analysisDisplay.showPosition(cloneState(game.state), { infoText: finishInfo });
       }
       checkResult();
     }
   };
 
-  const startNewGame = ({ side, sampleSeconds, fastWeights }) => {
+  const startNewGame = ({ side, fastWeights }) => {
     if (bot) bot.dispose();
 
     playerSide = side;
     botFastWeights = sanitizeFastWeightObj(fastWeights);
-    const seconds = Number.isFinite(sampleSeconds) ? sampleSeconds : DEFAULT_THINK_SECONDS;
-    botBudgetMs = Math.max(1, Math.min(30, seconds)) * 1000;
     botThinking = false;
-    stopAnalysisTimer();
 
     game = createGame();
     bot = new Bot(playerSide === 'w' ? 'b' : 'w');
@@ -191,64 +172,10 @@ function init() {
 
     movesEl.innerHTML = '';
     setStatus(playerSide === 'w' ? 'White to move' : 'Black to move');
-    analysisDisplay.showPosition(cloneState(game.state), { infoText: 'Fast bot warming up...' });
     dlg.close();
 
     maybeBotMove();
   };
-
-  const sacrificeSlider = null;
-  const sacrificeLabel = null;
-  const botStyleSelect = null;
-  const fastWeightsSection = document.getElementById('fastWeightsSection');
-  const fastWeightInputs = {};
-  FAST_WEIGHT_KEYS.forEach((key) => {
-    const input = form.elements.namedItem(`fast_${key}`);
-    if (input) {
-      fastWeightInputs[key] = input;
-      input.value = DEFAULT_FAST_WEIGHTS[key];
-    }
-  });
-
-  const clampDepth = (value) => {
-    const numeric = Number.isFinite(value) ? value : BOT_DEPTH;
-    return Math.max(BOT_MIN_DEPTH, Math.min(BOT_MAX_DEPTH, Math.round(numeric)));
-  };
-
-  const sanitizeFastWeightObj = (raw) => {
-    const result = { ...DEFAULT_FAST_WEIGHTS };
-    if (!raw) return result;
-    FAST_WEIGHT_KEYS.forEach((key) => {
-      const value = Number.parseFloat(raw[key]);
-      if (Number.isFinite(value)) {
-        result[key] = Math.max(-FAST_WEIGHT_LIMIT, Math.min(FAST_WEIGHT_LIMIT, value));
-      }
-    });
-    return result;
-  };
-
-  const readFastWeights = () => {
-    const current = {};
-    Object.entries(fastWeightInputs).forEach(([key, input]) => {
-      current[key] = input.value;
-    });
-    return sanitizeFastWeightObj(current);
-  };
-
-  Object.entries(fastWeightInputs).forEach(([key, input]) => {
-    input.addEventListener('change', () => {
-      const value = Number.parseFloat(input.value);
-      if (Number.isFinite(value)) {
-        input.value = Math.max(-FAST_WEIGHT_LIMIT, Math.min(FAST_WEIGHT_LIMIT, value));
-      } else {
-        input.value = DEFAULT_FAST_WEIGHTS[key];
-      }
-    });
-  });
-
-  if (fastWeightsSection) {
-    fastWeightsSection.classList.remove('disabled');
-  }
 
   newGameBtn.addEventListener('click', () => dlg.showModal());
 
@@ -256,11 +183,9 @@ function init() {
     event.preventDefault();
     const sideInput = form.elements.namedItem('side');
     const side = sideInput ? sideInput.value : 'w';
-    const secondsInput = form.elements.namedItem('sampleSeconds');
-    const sampleSeconds = secondsInput ? parseFloat(secondsInput.value) : DEFAULT_THINK_SECONDS;
+
     startNewGame({
       side: side || 'w',
-      sampleSeconds,
       fastWeights: readFastWeights(),
     });
   });
