@@ -1,4 +1,4 @@
-import { generateLegalMoves, makeMove, pieceAt } from '../chess/rules.js';
+import { generateLegalMoves, makeMove, pieceAt, cloneState } from '../chess/rules.js';
 
 const DEFAULT_WEIGHTS = {
   pawnValue: 100,
@@ -46,6 +46,12 @@ const KING_DIRS = [
   [0, -1],           [0, 1],
   [1, -1],  [1, 0],  [1, 1],
 ];
+
+function pieceValue(piece, weights) {
+  if (!piece) return 0;
+  const key = PIECE_WEIGHTS[piece.toUpperCase()];
+  return key ? (weights[key] || 0) : 0;
+}
 
 function squareAttacked(board, target, attackerSide) {
   const { r, c } = target;
@@ -108,6 +114,41 @@ function squareAttacked(board, target, attackerSide) {
   }
 
   return false;
+}
+
+function staticExchangeEvaluation(state, target, sideToMove, weights, initialValue) {
+  const tempState = cloneState(state);
+  const gain = [initialValue];
+  let currentSide = sideToMove;
+  let depth = 0;
+  let captureSquare = { r: target.r, c: target.c };
+
+  while (true) {
+    tempState.turn = currentSide;
+    const legal = generateLegalMoves(tempState);
+    const captures = legal
+      .filter((m) => m.to.r === captureSquare.r && m.to.c === captureSquare.c)
+      .sort((a, b) => pieceValue(pieceAt(tempState.board, a.from.r, a.from.c), weights)
+        - pieceValue(pieceAt(tempState.board, b.from.r, b.from.c), weights));
+
+    if (!captures.length) break;
+
+    const move = captures[0];
+    const captorPiece = pieceAt(tempState.board, move.from.r, move.from.c);
+    const captorValue = pieceValue(captorPiece, weights);
+
+    depth += 1;
+    gain[depth] = captorValue - gain[depth - 1];
+
+    makeMove(tempState, move, { skipResult: true });
+    currentSide = tempState.turn;
+  }
+
+  for (let i = gain.length - 2; i >= 0; i -= 1) {
+    gain[i] = Math.max(-gain[i], gain[i + 1]);
+  }
+
+  return gain[0] ?? 0;
 }
 
 function moveToNotation(move) {
@@ -393,27 +434,37 @@ function chooseBestMove(state, side, timeLimitMs, weights) {
     const nextState = cloneStateFast(state);
     makeMove(nextState, move, { skipResult: true });
     const score = evaluatePosition(nextState, side, weights);
-    const gain = score - baseline;
+    const rawGain = score - baseline;
+    let adjustedGain = rawGain;
     const movedPiece = pieceAt(nextState.board, move.to.r, move.to.c);
     if (movedPiece) {
-      const pieceKey = PIECE_WEIGHTS[movedPiece.toUpperCase()];
-      if (pieceKey) {
-        const attacker = nextState.turn;
-        if (squareAttacked(nextState.board, move.to, attacker)) {
-          const penalty = weights[pieceKey] || 0;
-          const adjusted = gain - penalty;
-          if (!bestMove || adjusted > bestGain || (adjusted === bestGain && score > bestScore)) {
-            bestMove = move;
-            bestGain = adjusted;
-            bestScore = score;
-          }
-          continue;
-        }
+      const movingValue = pieceValue(movedPiece, weights);
+      const see = staticExchangeEvaluation(
+        nextState,
+        move.to,
+        nextState.turn,
+        weights,
+        movingValue,
+      );
+      if (see < 0) {
+        adjustedGain += see;
       }
     }
-    if (!bestMove || gain > bestGain || (gain === bestGain && score > bestScore)) {
+    const friendlySide = nextState.turn === 'w' ? 'b' : 'w';
+    for (let r = 0; r < 8; r += 1) {
+      for (let c = 0; c < 8; c += 1) {
+        const piece = pieceAt(nextState.board, r, c);
+        if (!piece) continue;
+        const pieceSide = piece === piece.toUpperCase() ? 'w' : 'b';
+        if (pieceSide !== friendlySide) continue;
+        if (!squareAttacked(nextState.board, { r, c }, nextState.turn)) continue;
+        if (squareAttacked(nextState.board, { r, c }, friendlySide)) continue;
+        adjustedGain -= pieceValue(piece, weights);
+      }
+    }
+    if (!bestMove || adjustedGain > bestGain || (adjustedGain === bestGain && score > bestScore)) {
       bestMove = move;
-      bestGain = gain;
+      bestGain = adjustedGain;
       bestScore = score;
     }
   }

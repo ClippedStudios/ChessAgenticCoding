@@ -450,6 +450,18 @@ function chooseBestMove(state, side, timeLimitMs, weights) {
         adjustedGain += see;
       }
     }
+    const friendlySide = nextState.turn === 'w' ? 'b' : 'w';
+    for (let r = 0; r < 8; r += 1) {
+      for (let c = 0; c < 8; c += 1) {
+        const piece = pieceAt(nextState.board, r, c);
+        if (!piece) continue;
+        const pieceSide = piece === piece.toUpperCase() ? 'w' : 'b';
+        if (pieceSide !== friendlySide) continue;
+        if (!squareAttacked(nextState.board, { r, c }, nextState.turn)) continue;
+        if (squareAttacked(nextState.board, { r, c }, friendlySide)) continue;
+        adjustedGain -= pieceValue(piece, weights);
+      }
+    }
     if (!bestMove || adjustedGain > bestGain || (adjustedGain === bestGain && score > bestScore)) {
       bestMove = move;
       bestGain = adjustedGain;
