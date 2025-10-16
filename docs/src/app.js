@@ -20,8 +20,21 @@ const DEFAULT_FAST_WEIGHTS = {
   rookOpenBonus: 12,
   queenEarlyPenalty: -12,
 };
+
 const FAST_WEIGHT_KEYS = Object.keys(DEFAULT_FAST_WEIGHTS);
 const FAST_WEIGHT_LIMIT = 5000;
+
+function sanitizeFastWeightObj(raw) {
+  const result = { ...DEFAULT_FAST_WEIGHTS };
+  if (!raw) return result;
+  FAST_WEIGHT_KEYS.forEach((key) => {
+    const value = Number.parseFloat(raw[key]);
+    if (Number.isFinite(value)) {
+      result[key] = Math.max(-FAST_WEIGHT_LIMIT, Math.min(FAST_WEIGHT_LIMIT, value));
+    }
+  });
+  return result;
+}
 
 function init() {
   const boardEl = document.getElementById('board');
@@ -32,11 +45,9 @@ function init() {
   const startGameBtn = document.getElementById('startGameBtn');
   const resignBtn = document.getElementById('resignBtn');
   const form = document.getElementById('newGameForm');
-  const analysisRoot = document.getElementById('analysisBoard');
-  const analysisInfo = document.getElementById('analysisInfo');
-  const analysisTimerEl = document.getElementById('analysisTimerLabel');
+  const fastWeightsSection = document.getElementById('fastWeightsSection');
 
-  if (!boardEl || !statusEl || !movesEl || !dlg || !newGameBtn || !startGameBtn || !resignBtn || !form || !analysisRoot || !analysisInfo) {
+  if (!boardEl || !statusEl || !movesEl || !dlg || !newGameBtn || !startGameBtn || !resignBtn || !form) {
     console.error('Chess UI initialisation failed: missing required elements.');
     return;
   }
@@ -46,11 +57,31 @@ function init() {
   let bot;
   let playerSide = 'w';
   let botThinking = false;
-  let botBudgetMs = BOT_MOVE_TIME_MS;
   let botFastWeights = { ...DEFAULT_FAST_WEIGHTS };
-  const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 320 });
-  let analysisTimerInterval = null;
-  let analysisTimerDeadline = null;
+
+  const fastWeightInputs = {};
+  FAST_WEIGHT_KEYS.forEach((key) => {
+    const input = form.elements.namedItem(`fast_${key}`);
+    if (input) {
+      fastWeightInputs[key] = input;
+      input.value = DEFAULT_FAST_WEIGHTS[key];
+    }
+  });
+
+  if (fastWeightsSection) {
+    fastWeightsSection.classList.remove('disabled');
+  }
+
+  Object.entries(fastWeightInputs).forEach(([key, input]) => {
+    input.addEventListener('change', () => {
+      const value = Number.parseFloat(input.value);
+      if (Number.isFinite(value)) {
+        input.value = Math.max(-FAST_WEIGHT_LIMIT, Math.min(FAST_WEIGHT_LIMIT, value));
+      } else {
+        input.value = DEFAULT_FAST_WEIGHTS[key];
+      }
+    });
+  });
 
   const setStatus = (text) => {
     statusEl.textContent = text;
@@ -63,42 +94,12 @@ function init() {
     movesEl.scrollTop = movesEl.scrollHeight;
   };
 
-  const formatEval = (score, side) => {
-    const sign = side === 'w' ? 1 : -1;
-    const value = (score / 100) * sign;
-    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
-  };
-
-  const stopAnalysisTimer = (forceZero = false) => {
-    if (analysisTimerInterval) {
-      clearInterval(analysisTimerInterval);
-      analysisTimerInterval = null;
-    }
-    analysisTimerDeadline = null;
-    if (!analysisTimerEl) return;
-    if (forceZero) analysisTimerEl.textContent = '0.0s';
-    else analysisTimerEl.textContent = '--.-s';
-  };
-
-  const updateAnalysisTimer = () => {
-    if (!analysisTimerEl || !analysisTimerDeadline) return;
-    const remaining = Math.max(0, analysisTimerDeadline - performance.now());
-    analysisTimerEl.textContent = `${(remaining / 1000).toFixed(1)}s`;
-  };
-
-  const startAnalysisTimer = (durationMs) => {
-    if (!analysisTimerEl) return;
-    stopAnalysisTimer();
-    analysisTimerDeadline = performance.now() + durationMs;
-    updateAnalysisTimer();
-    analysisTimerInterval = setInterval(() => {
-      if (!analysisTimerDeadline) return;
-      if (performance.now() >= analysisTimerDeadline) {
-        stopAnalysisTimer(true);
-      } else {
-        updateAnalysisTimer();
-      }
-    }, 100);
+  const readFastWeights = () => {
+    const current = {};
+    Object.entries(fastWeightInputs).forEach(([key, input]) => {
+      current[key] = input.value;
+    });
+    return sanitizeFastWeightObj(current);
   };
 
   const checkResult = () => {
