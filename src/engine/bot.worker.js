@@ -374,10 +374,6 @@ function evaluatePosition(state, perspective, weights) {
   if (myKing && isCastled(myKing, perspective)) score += weights.castleBonus;
   if (enemyKing && isCastled(enemyKing, enemy)) score -= weights.castleBonus;
 
-  if (state.turn === enemy && state.turn !== perspective) {
-    score += weights.checkPenalty;
-  }
-
   const myStats = pawnStats(myPawns, perspective, enemyPawnBoard);
   const enemyStats = pawnStats(enemyPawns, enemy, myPawnBoard);
   score += weights.isolatedPenalty * (myStats.isolated - enemyStats.isolated);
