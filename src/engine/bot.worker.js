@@ -1,4 +1,4 @@
-import { generateLegalMoves, makeMove, pieceAt, cloneState } from '../chess/rules.js';
+import { generateLegalMoves, makeMove, pieceAt, cloneState, inCheck } from '../chess/rules.js';
 
 const DEFAULT_WEIGHTS = {
   pawnValue: 100,
