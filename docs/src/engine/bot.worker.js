@@ -47,6 +47,16 @@ const KING_DIRS = [
   [1, -1],  [1, 0],  [1, 1],
 ];
 
+function moveToNotation(move) {
+  if (!move) return "";
+  const fromFile = String.fromCharCode(97 + move.from.c);
+  const fromRank = 8 - move.from.r;
+  const toFile = String.fromCharCode(97 + move.to.c);
+  const toRank = 8 - move.to.r;
+  const promo = move.promotion ? `=${move.promotion.toUpperCase()}` : "";
+  return `${fromFile}${fromRank}${toFile}${toRank}${promo}`;
+}
+
 function sanitizeWeights(raw) {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_WEIGHTS };
   const result = { ...DEFAULT_WEIGHTS };
@@ -334,8 +344,8 @@ self.addEventListener('message', (event) => {
     type: 'result',
     move: result.move,
     line: result.move ? [result.move] : [],
-    moveNotation: result.move ? `${String.fromCharCode(97 + result.move.from.c)}${8 - result.move.from.r}${String.fromCharCode(97 + result.move.to.c)}${8 - result.move.to.r}` : '',
-    lineNotation: result.move ? [`${String.fromCharCode(97 + result.move.from.c)}${8 - result.move.from.r}${String.fromCharCode(97 + result.move.to.c)}${8 - result.move.to.r}`] : [],
+    moveNotation: moveToNotation(result.move),
+    lineNotation: result.move ? [moveToNotation(result.move)] : [],
     score: result.score,
     elapsed: result.elapsed,
   });

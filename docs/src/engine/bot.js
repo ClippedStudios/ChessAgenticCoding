@@ -1,4 +1,4 @@
-﻿const WORKER_URL = new URL('./bot.worker.js', import.meta.url);
+const WORKER_URL = new URL('./bot.worker.js', import.meta.url);
 
 function serializeState(state) {
   return {
@@ -25,65 +25,32 @@ export class Bot {
 
   chooseMove(game, options = {}) {
     this.ensureWorker();
-    let config;
-    if (typeof options === 'number') {
-      config = { depth: options };
-    } else if (options && typeof options === 'object') {
-      config = Object.assign({}, options);
-    } else {
-      config = {};
-    }
-    const {
-      timeMs = 10000,
-      fastWeights = null,
-    } = config;
-
+    const timeMs = Number.isFinite(options.timeMs) ? options.timeMs : 0;
+    const fastWeights = options.fastWeights ? { ...options.fastWeights } : null;
     const statePayload = serializeState(game.state);
 
     return new Promise((resolve, reject) => {
-      const resultTimer =
-        timeMs > 0
-          ? setTimeout(() => {
-              cleanup();
-              resolve(null);
-            }, timeMs + 500)
-          : null;
-      const forceStopTimer =
-        timeMs > 0
-          ? setTimeout(() => {
-              try {
-                this.worker.postMessage({ type: 'stop' });
-              } catch (err) {
-                // ignore post errors
-              }
-            }, timeMs)
-          : null;
-
-      const cleanup = () => {
-        if (resultTimer) clearTimeout(resultTimer);
-        if (forceStopTimer) clearTimeout(forceStopTimer);
-        this.worker.removeEventListener('message', handleMessage);
-        this.worker.removeEventListener('error', handleError);
-      };
-
       const handleMessage = (event) => {
         const { data } = event;
         if (!data || typeof data !== 'object') return;
         if (data.type === 'result') {
           cleanup();
           resolve(data.move || null);
-          return;
         }
         if (data.type === 'error') {
           cleanup();
           reject(new Error(data.message || 'Bot worker error'));
-          return;
         }
       };
 
       const handleError = (err) => {
         cleanup();
         reject(err);
+      };
+
+      const cleanup = () => {
+        this.worker.removeEventListener('message', handleMessage);
+        this.worker.removeEventListener('error', handleError);
       };
 
       this.worker.addEventListener('message', handleMessage);
@@ -93,7 +60,7 @@ export class Bot {
         state: statePayload,
         side: this.side,
         timeLimitMs: timeMs,
-        fastWeights: fastWeights ? { ...fastWeights } : null,
+        fastWeights,
       });
     });
   }
