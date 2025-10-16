@@ -119,6 +119,7 @@ function init() {
     setStatus('Bot thinking...');
 
     try {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
       const move = await bot.chooseMove(game, {
         timeMs: 0,
         fastWeights: botFastWeights,
@@ -144,6 +145,12 @@ function init() {
     }
   };
 
+  const scheduleBotMove = () => {
+    requestAnimationFrame(() => {
+      void maybeBotMove();
+    });
+  };
+
   const startNewGame = ({ side, fastWeights }) => {
     if (bot) bot.dispose();
 
@@ -162,7 +169,7 @@ function init() {
         ui.render(game);
         appendMoveSAN(result.san);
         checkResult();
-        maybeBotMove();
+        scheduleBotMove();
       },
     });
 
@@ -174,7 +181,9 @@ function init() {
     setStatus(playerSide === 'w' ? 'White to move' : 'Black to move');
     dlg.close();
 
-    maybeBotMove();
+    if (game.state.turn !== playerSide) {
+      scheduleBotMove();
+    }
   };
 
   newGameBtn.addEventListener('click', () => dlg.showModal());
