@@ -34,11 +34,7 @@ export class Bot {
       config = {};
     }
     const {
-      mode = 'strategic',
-      depth = 3,
       timeMs = 10000,
-      sacrificeBias = 0.25,
-      onUpdate,
       fastWeights = null,
     } = config;
 
@@ -73,10 +69,6 @@ export class Bot {
       const handleMessage = (event) => {
         const { data } = event;
         if (!data || typeof data !== 'object') return;
-        if (data.type === 'pv') {
-          if (onUpdate) onUpdate(data);
-          return;
-        }
         if (data.type === 'result') {
           cleanup();
           resolve(data.move || null);
@@ -98,12 +90,9 @@ export class Bot {
       this.worker.addEventListener('error', handleError);
       this.worker.postMessage({
         type: 'analyze',
-        mode,
         state: statePayload,
         side: this.side,
-        depth,
         timeLimitMs: timeMs,
-        sacrificeBias,
         fastWeights: fastWeights ? { ...fastWeights } : null,
       });
     });

@@ -1,12 +1,9 @@
-﻿import { createBoardUI } from './ui/board.js';
+import { createBoardUI } from './ui/board.js';
 import { createGame } from './chess/game.js';
 import { Bot } from './engine/bot.js';
 import { cloneState } from './chess/rules.js';
 import { createAnalysisDisplay } from './ui/analysisBoard.js';
 
-const BOT_DEPTH = 3;
-const BOT_MIN_DEPTH = 1;
-const BOT_MAX_DEPTH = 5;
 const BOT_MOVE_TIME_MS = 10000;
 const DEFAULT_THINK_SECONDS = 6;
 const DEFAULT_FAST_WEIGHTS = {
@@ -54,9 +51,6 @@ function init() {
   let playerSide = 'w';
   let botThinking = false;
   let botBudgetMs = BOT_MOVE_TIME_MS;
-  let botAggression = 0.25;
-  let botModeSetting = 'strategic';
-  let botDepthSetting = BOT_DEPTH;
   let botFastWeights = { ...DEFAULT_FAST_WEIGHTS };
   const analysisDisplay = createAnalysisDisplay(analysisRoot, analysisInfo, { frameDelay: 320 });
   let analysisTimerInterval = null;
@@ -125,38 +119,20 @@ function init() {
     if (game.state.turn === playerSide) return;
 
     botThinking = true;
-    const statusText = botModeSetting === 'fast' ? 'Fast bot thinking...' : 'Bot thinking...';
-    setStatus(statusText);
+    setStatus('Bot thinking...');
     const baseState = cloneState(game.state);
-    const infoText = botModeSetting === 'fast' ? 'Quick scan...' : 'Exploring moves...';
-    analysisDisplay.showPosition(baseState, { infoText });
-    let updateCount = 0;
-
-    const handleUpdate = (payload) => {
-      if (!payload || botModeSetting !== 'strategic') return;
-      if (payload.type === 'pv') {
-        updateCount += 1;
-        const moveLabel = payload.currentMove ? ` ${payload.currentMove}` : '';
-        const lineInfo = `Line #${updateCount} depth ${payload.depth}${moveLabel} eval ${formatEval(payload.score, bot.side)}`;
-        analysisDisplay.queueLine(baseState, payload.line || [], { infoText: lineInfo });
-      }
-    };
+    analysisDisplay.showPosition(baseState, { infoText: 'Quick scan...' });
 
     try {
       const sideMs = game.state.turn === 'w' ? game.state.whiteMs : game.state.blackMs;
-      const minBudget = botModeSetting === 'fast' ? 150 : 500;
+      const minBudget = 100;
       const targetBudget = Math.max(minBudget, botBudgetMs);
       const timeBudget = Math.max(minBudget, Math.min(targetBudget, sideMs || targetBudget));
       await new Promise((resolve) => requestAnimationFrame(resolve));
       startAnalysisTimer(timeBudget);
-      const depthToUse = botModeSetting === 'strategic' ? botDepthSetting : 1;
       const move = await bot.chooseMove(game, {
-        mode: botModeSetting,
-        depth: depthToUse,
         timeMs: timeBudget,
-        sacrificeBias: botAggression,
-        onUpdate: botModeSetting === 'strategic' ? handleUpdate : undefined,
-        fastWeights: botModeSetting === 'fast' ? botFastWeights : undefined,
+        fastWeights: botFastWeights,
       });
 
       if (move) {
@@ -176,30 +152,20 @@ function init() {
         setStatus(game.state.turn === 'w' ? 'White to move' : 'Black to move');
       }
       if (game) {
-        const finishInfo = game.getResult()
-          ? 'Bot finished.'
-          : botModeSetting === 'fast'
-            ? 'Fast bot finished.'
-            : 'Ready for your move.';
+        const finishInfo = game.getResult() ? 'Bot finished.' : 'Ready for your move.';
         analysisDisplay.showPosition(cloneState(game.state), { infoText: finishInfo });
       }
       checkResult();
     }
   };
 
-  const startNewGame = ({ side, mode, sampleSeconds, sacrificeValue, depth, fastWeights }) => {
+  const startNewGame = ({ side, sampleSeconds, fastWeights }) => {
     if (bot) bot.dispose();
 
     playerSide = side;
-    botModeSetting = mode === 'fast' ? 'fast' : 'strategic';
-    const depthValue = Number.isFinite(depth) ? depth : BOT_DEPTH;
-    botDepthSetting = Math.max(BOT_MIN_DEPTH, Math.min(BOT_MAX_DEPTH, depthValue));
-    botFastWeights = botModeSetting === 'fast'
-      ? sanitizeFastWeightObj(fastWeights)
-      : { ...DEFAULT_FAST_WEIGHTS };
+    botFastWeights = sanitizeFastWeightObj(fastWeights);
     const seconds = Number.isFinite(sampleSeconds) ? sampleSeconds : DEFAULT_THINK_SECONDS;
     botBudgetMs = Math.max(1, Math.min(30, seconds)) * 1000;
-    botAggression = Math.max(0, Math.min(1, (sacrificeValue ?? 25) / 100));
     botThinking = false;
     stopAnalysisTimer();
 
@@ -225,18 +191,15 @@ function init() {
 
     movesEl.innerHTML = '';
     setStatus(playerSide === 'w' ? 'White to move' : 'Black to move');
-    const waitingInfo = botModeSetting === 'fast' ? 'Fast bot warming up...' : 'Waiting for bot...';
-    analysisDisplay.showPosition(cloneState(game.state), { infoText: waitingInfo });
+    analysisDisplay.showPosition(cloneState(game.state), { infoText: 'Fast bot warming up...' });
     dlg.close();
 
     maybeBotMove();
   };
 
-  const sacrificeSlider = form.elements.namedItem('sacrificeBias');
-  const sacrificeLabel = document.getElementById('sacrificeLabel');
-  const botStyleSelect = form.elements.namedItem('botStyle');
-  const botDepthInput = form.elements.namedItem('botDepth');
-  const depthHint = document.getElementById('depthHint');
+  const sacrificeSlider = null;
+  const sacrificeLabel = null;
+  const botStyleSelect = null;
   const fastWeightsSection = document.getElementById('fastWeightsSection');
   const fastWeightInputs = {};
   FAST_WEIGHT_KEYS.forEach((key) => {
@@ -283,51 +246,9 @@ function init() {
     });
   });
 
-  const syncModeControls = () => {
-    const isFast = botStyleSelect ? botStyleSelect.value === 'fast' : false;
-    if (botDepthInput) {
-      botDepthInput.disabled = isFast;
-      botDepthInput.value = clampDepth(Number.parseInt(botDepthInput.value, 10));
-    }
-    if (depthHint) {
-      depthHint.textContent = isFast ? 'Depth is fixed for the fast bot.' : 'Used only for the strategic bot.';
-    }
-    Object.values(fastWeightInputs).forEach((input) => {
-      input.disabled = !isFast;
-    });
-    if (fastWeightsSection) {
-      fastWeightsSection.classList.toggle('disabled', !isFast);
-    }
-  };
-
-  const describeAggression = (value) => {
-    if (value <= 5) return 'None';
-    if (value <= 20) return 'Light';
-    if (value <= 45) return 'Moderate';
-    if (value <= 70) return 'Bold';
-    return 'Reckless';
-  };
-
-  if (sacrificeSlider && sacrificeLabel) {
-    const syncLabel = () => {
-      const value = Number.parseInt(sacrificeSlider.value, 10) || 0;
-      sacrificeLabel.textContent = describeAggression(value);
-    };
-    sacrificeSlider.addEventListener('input', syncLabel);
-    syncLabel();
+  if (fastWeightsSection) {
+    fastWeightsSection.classList.remove('disabled');
   }
-
-  if (botDepthInput) {
-    botDepthInput.addEventListener('change', () => {
-      botDepthInput.value = clampDepth(Number.parseInt(botDepthInput.value, 10));
-    });
-  }
-
-  if (botStyleSelect) {
-    botStyleSelect.addEventListener('change', syncModeControls);
-  }
-
-  syncModeControls();
 
   newGameBtn.addEventListener('click', () => dlg.showModal());
 
@@ -335,20 +256,11 @@ function init() {
     event.preventDefault();
     const sideInput = form.elements.namedItem('side');
     const side = sideInput ? sideInput.value : 'w';
-    const styleInput = form.elements.namedItem('botStyle');
-    const mode = styleInput ? styleInput.value : 'strategic';
     const secondsInput = form.elements.namedItem('sampleSeconds');
     const sampleSeconds = secondsInput ? parseFloat(secondsInput.value) : DEFAULT_THINK_SECONDS;
-    const depthInput = form.elements.namedItem('botDepth');
-    const depthValue = depthInput ? parseFloat(depthInput.value) : BOT_DEPTH;
-    const sacrificeInput = form.elements.namedItem('sacrificeBias');
-    const sacrificeValue = sacrificeInput ? parseFloat(sacrificeInput.value) : 25;
     startNewGame({
       side: side || 'w',
-      mode,
       sampleSeconds,
-      sacrificeValue,
-      depth: depthValue,
       fastWeights: readFastWeights(),
     });
   });

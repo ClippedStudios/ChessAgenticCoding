@@ -42,12 +42,7 @@
           <label><input type="radio" name="side" value="w" checked /> White</label>
           <label><input type="radio" name="side" value="b" /> Black</label>
         </div>
-        <label for="botStyle">Bot style</label>
-        <select id="botStyle" name="botStyle">
-          <option value="strategic" selected>Strategic (deeper)</option>
-          <option value="fast">Fast (responsive)</option>
-        </select>
-        <label for="sampleSeconds">Think time (seconds)</label>
+<label for="sampleSeconds">Think time (seconds)</label>
         <input
           id="sampleSeconds"
           name="sampleSeconds"
@@ -56,16 +51,6 @@
           max="30"
           value="6"
         />
-        <label for="botDepth">Strategic depth</label>
-        <input
-          id="botDepth"
-          name="botDepth"
-          type="number"
-          min="1"
-          max="5"
-          value="3"
-        />
-        <small id="depthHint">Used only for the strategic bot.</small>
         <fieldset id="fastWeightsSection" class="fast-weights">
           <legend>Fast Bot Scoring</legend>
           <div class="fast-weights-grid">
@@ -117,28 +102,9 @@
             <label for="fastQueenEarlyPenalty">Queen early penalty
               <input id="fastQueenEarlyPenalty" name="fast_queenEarlyPenalty" type="number" step="1" value="-12" />
             </label>
-            <label for="fastAttackBonus">Threat bonus
-              <input id="fastAttackBonus" name="fast_attackBonus" type="number" step="1" value="12" />
-            </label>
-            <label for="fastHangingPenalty">Hanging piece penalty
-              <input id="fastHangingPenalty" name="fast_hangingPenalty" type="number" step="1" value="-18" />
-            </label>
-            <label for="fastKingRingBonus">King ring pressure bonus
-              <input id="fastKingRingBonus" name="fast_kingRingBonus" type="number" step="1" value="6" />
-            </label>
           </div>
           <small>Values are in centipawns (hundredths of a pawn). Positive rewards, negative penalties.</small>
         </fieldset>
-        <label for="sacrificeBias">Sacrifice preference</label>
-        <input
-          id="sacrificeBias"
-          name="sacrificeBias"
-          type="range"
-          min="0"
-          max="100"
-          value="25"
-        />
-        <small id="sacrificeLabel">Moderate</small>
         <menu>
           <button value="cancel">Cancel</button>
           <button value="start" id="startGameBtn">Start</button>
