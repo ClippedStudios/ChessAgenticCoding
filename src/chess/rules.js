@@ -241,3 +241,4 @@ export function toSAN(prevState, move) {
   if (p==='P' && capture) pawnFile = rcToAlgebra(move.from)[0];
   return `${pieceLetter}${pawnFile}${capture}${dest}${promo}${suffix}`;
 }
+
