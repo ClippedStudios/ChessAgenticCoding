@@ -26,9 +26,6 @@ const DEFAULT_FAST_WEIGHTS = {
   bishopActivityBonus: 6,
   rookOpenBonus: 12,
   queenEarlyPenalty: -12,
-  attackBonus: 12,
-  hangingPenalty: -18,
-  kingRingBonus: 6,
 };
 const FAST_WEIGHT_KEYS = Object.keys(DEFAULT_FAST_WEIGHTS);
 const FAST_WEIGHT_LIMIT = 5000;

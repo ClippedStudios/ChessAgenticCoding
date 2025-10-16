@@ -265,9 +265,6 @@ const DEFAULT_FAST_WEIGHTS = {
   bishopActivityBonus: 6,
   rookOpenBonus: 12,
   queenEarlyPenalty: -12,
-  attackBonus: 12,
-  hangingPenalty: -18,
-  kingRingBonus: 6,
 };
 
 const FAST_WEIGHT_KEYS = Object.keys(DEFAULT_FAST_WEIGHTS);
@@ -1367,58 +1364,6 @@ function fastEvaluate(state, perspective, weights) {
     if (myQueen && myQueenMoved) score += weights.queenEarlyPenalty;
     if (enemyQueen && enemyQueenMoved) score -= weights.queenEarlyPenalty;
   }
-
-  const analysis = { state, attackCache: new Map() };
-
-  let threatScore = 0;
-  for (const piece of enemyPieces) {
-    const attackers = attacksOnSquare(analysis, piece, perspective);
-    if (!attackers.count) continue;
-    const defenders = attacksOnSquare(analysis, piece, enemy);
-    if (defenders.count === 0) {
-      const pieceWeight = pieceValues[piece.type] || 100;
-      threatScore += pieceWeight / 100;
-    }
-  }
-  let enemyThreatScore = 0;
-  for (const piece of myPieces) {
-    const attackers = attacksOnSquare(analysis, piece, enemy);
-    if (!attackers.count) continue;
-    const defenders = attacksOnSquare(analysis, piece, perspective);
-    if (defenders.count === 0) {
-      const pieceWeight = pieceValues[piece.type] || 100;
-      enemyThreatScore += pieceWeight / 100;
-    }
-  }
-  score += weights.attackBonus * threatScore;
-  score -= weights.attackBonus * enemyThreatScore;
-
-  let hangingCount = 0;
-  for (const piece of myPieces) {
-    const attackers = attacksOnSquare(analysis, piece, enemy);
-    if (!attackers.count) continue;
-    const defenders = attacksOnSquare(analysis, piece, perspective);
-    if (attackers.weight > defenders.weight) {
-      const pieceWeight = pieceValues[piece.type] || 100;
-      hangingCount += pieceWeight / 100;
-    }
-  }
-  let enemyHanging = 0;
-  for (const piece of enemyPieces) {
-    const attackers = attacksOnSquare(analysis, piece, perspective);
-    if (!attackers.count) continue;
-    const defenders = attacksOnSquare(analysis, piece, enemy);
-    if (attackers.weight > defenders.weight) {
-      const pieceWeight = pieceValues[piece.type] || 100;
-      enemyHanging += pieceWeight / 100;
-    }
-  }
-  score += weights.hangingPenalty * hangingCount;
-  score -= weights.hangingPenalty * enemyHanging;
-
-  const kingPressure = kingRingPressure(analysis, perspective, enemyKingPos);
-  const enemyPressure = kingRingPressure(analysis, enemy, myKingPos);
-  score += weights.kingRingBonus * (kingPressure - enemyPressure);
 
   return score;
 }
