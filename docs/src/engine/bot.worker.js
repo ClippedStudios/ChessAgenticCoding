@@ -292,7 +292,7 @@ function evaluatePosition(state, perspective, weights) {
   return score;
 }
 
-function chooseBestMove(state, side, timeLimitMs, weights) {
+function movePriority(move) {\n  let score = 0;\n  if (move.capture) {\n    const target = move.capture.toUpperCase();\n    const weightKey = PIECE_WEIGHTS[target];\n    score += weightKey ? (DEFAULT_WEIGHTS[weightKey] || 100) * 2 : 200;\n  }\n  if (move.promotion) {\n    const promoKey = PIECE_WEIGHTS[move.promotion.toUpperCase()];\n    score += promoKey ? (DEFAULT_WEIGHTS[promoKey] || 400) * 3 : 400;\n  }\n  if (move.enPassant) score += 120;\n  if (move.castle) score += 80;\n  return score;\n}\n\nfunction chooseBestMove(state, side, timeLimitMs, weights) {
   const moves = generateLegalMoves(state);
   if (!moves.length) return { move: null, score: 0, elapsed: 0 };
 
@@ -317,7 +317,7 @@ function chooseBestMove(state, side, timeLimitMs, weights) {
     }
   }
 
-  if (!bestMove) bestMove = moves[0];
+  if (!bestMove && moves.length) bestMove = moves[0];
 
   return {
     move: bestMove,
