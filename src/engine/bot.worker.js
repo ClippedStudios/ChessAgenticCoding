@@ -1278,6 +1278,8 @@ function fastEvaluate(state, perspective, weights) {
   const enemyPawnBoard = Array.from({ length: 8 }, () => Array(8).fill(false));
   let myKingPos = null;
   let enemyKingPos = null;
+  let myMobility = 0;
+  let enemyMobility = 0;
 
   for (let r = 0; r < 8; r += 1) {
     for (let c = 0; c < 8; c += 1) {
@@ -1287,8 +1289,10 @@ function fastEvaluate(state, perspective, weights) {
       const side = piece === piece.toUpperCase() ? 'w' : 'b';
       const entry = { type, r, c };
       const value = pieceValues[type] || 0;
+      const mobility = pieceMobility(board, entry, side);
       if (side === perspective) {
         score += value;
+        myMobility += mobility;
         myPieces.push(entry);
         if (type === 'P') {
           myPawns.push(entry);
@@ -1309,6 +1313,7 @@ function fastEvaluate(state, perspective, weights) {
         }
       } else {
         score -= value;
+        enemyMobility += mobility;
         enemyPieces.push(entry);
         if (type === 'P') {
           enemyPawns.push(entry);
@@ -1345,10 +1350,7 @@ function fastEvaluate(state, perspective, weights) {
   score += weights.passedBonus * (myPawnStats.passed - enemyPawnStats.passed);
   score += weights.passedRankBonus * (myPawnStats.passedAdvance - enemyPawnStats.passedAdvance);
 
-  const myMobility = countLegalMovesLimited(state, perspective, 40);
-  const enemyMobility = countLegalMovesLimited(state, enemy, 40);
   score += weights.mobilityBonus * (myMobility - enemyMobility);
-
   const myKnightCenter = countKnightsInCenter(myKnights);
   const enemyKnightCenter = countKnightsInCenter(enemyKnights);
   score += weights.knightCenterBonus * (myKnightCenter - enemyKnightCenter);
