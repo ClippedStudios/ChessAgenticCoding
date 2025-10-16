@@ -157,7 +157,6 @@ function init() {
     ui = createBoardUI(boardEl, game, {
       onUserMove: (move) => {
         if (botThinking || game.state.turn !== playerSide) return;
-        analysisDisplay.clear({ infoText: 'Player exploring...' });
         const result = game.playMove(move);
         if (!result) return;
         ui.render(game);
@@ -207,4 +206,3 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
-
