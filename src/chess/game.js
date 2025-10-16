@@ -9,19 +9,16 @@ export function createGame({ minutes = 10, increment = 0 } = {}) {
     increment,
     result: null,
     lastMove: null,
-    history: [], // for repetition or undo later
   };
 
   function playMove(move) {
     const legal = generateLegalMoves(state);
     const found = legal.find(m => m.from.r===move.from.r && m.from.c===move.from.c && m.to.r===move.to.r && m.to.c===move.to.c && (m.promotion||'') === (move.promotion||''));
     if (!found) return null;
-    const prev = JSON.parse(JSON.stringify(state));
     makeMove(state, found);
     state.lastMove = found;
-    state.history.push(prev);
-    found.san = toSAN(prev, found);
-    found.color = prev.turn;
+    found.san = toSAN({ ...state, lastMove: null }, found);
+    found.color = state.turn === 'w' ? 'b' : 'w';
     return found;
   }
 
