@@ -340,10 +340,19 @@ function chooseBestMove(state, side, timeLimitMs, weights) {
 
   if (!bestMove && moves.length) bestMove = moves[0];
 
+  const elapsed = performance.now() - start;
+  if (!bestMove) {
+    return { move: null, score: 0, elapsed };
+  }
+
   return {
-    move: bestMove,
+    move: {
+      from: { r: bestMove.from.r, c: bestMove.from.c },
+      to: { r: bestMove.to.r, c: bestMove.to.c },
+      promotion: bestMove.promotion || null,
+    },
     score: bestGain,
-    elapsed: performance.now() - start,
+    elapsed,
   };
 }
 
@@ -361,12 +370,14 @@ self.addEventListener('message', (event) => {
   const weights = sanitizeWeights(fastWeights);
   const result = chooseBestMove(state, side, Math.max(0, timeLimitMs), weights);
 
+  const moveNotation = moveToNotation(result.move);
+
   self.postMessage({
     type: 'result',
     move: result.move,
     line: result.move ? [result.move] : [],
-    moveNotation: moveToNotation(result.move),
-    lineNotation: result.move ? [moveToNotation(result.move)] : [],
+    moveNotation,
+    lineNotation: result.move ? [moveNotation] : [],
     score: result.score,
     elapsed: result.elapsed,
   });
