@@ -1388,6 +1388,8 @@ function runFastMove(initialState, side, timeLimitMs, weights) {
 
   let bestMove = null;
   let bestScore = -Infinity;
+  let bestGain = -Infinity;
+  const baseline = fastEvaluate(initialState, side, weights);
 
   for (const move of moves) {
     if (stopRequested) break;
@@ -1395,9 +1397,11 @@ function runFastMove(initialState, side, timeLimitMs, weights) {
     const nextState = cloneState(initialState);
     makeMove(nextState, move, { skipResult: true });
     const score = fastEvaluate(nextState, side, weights);
-    if (!bestMove || score > bestScore) {
+    const gain = score - baseline;
+    if (!bestMove || gain > bestGain || (gain === bestGain && score > bestScore)) {
       bestMove = move;
       bestScore = score;
+      bestGain = gain;
     }
   }
 
@@ -1406,6 +1410,7 @@ function runFastMove(initialState, side, timeLimitMs, weights) {
     const fallbackState = cloneState(initialState);
     makeMove(fallbackState, bestMove, { skipResult: true });
     bestScore = fastEvaluate(fallbackState, side, weights);
+    bestGain = bestScore - baseline;
   }
 
   self.postMessage({
@@ -1414,7 +1419,7 @@ function runFastMove(initialState, side, timeLimitMs, weights) {
     line: bestMove ? [bestMove] : [],
     moveNotation: moveToNotation(bestMove),
     lineNotation: bestMove ? [moveToNotation(bestMove)] : [],
-    score: bestScore,
+    score: bestGain,
     elapsed: performance.now() - start,
   });
 }
