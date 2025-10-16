@@ -254,7 +254,7 @@ const DEFAULT_FAST_WEIGHTS = {
   bishopValue: 330,
   rookValue: 500,
   queenValue: 900,
-  checkPenalty: -900,
+  checkPenalty: -800,
   castleBonus: 40,
   isolatedPenalty: -12,
   passedBonus: 35,
