@@ -292,7 +292,23 @@ function evaluatePosition(state, perspective, weights) {
   return score;
 }
 
-function movePriority(move) {\n  let score = 0;\n  if (move.capture) {\n    const target = move.capture.toUpperCase();\n    const weightKey = PIECE_WEIGHTS[target];\n    score += weightKey ? (DEFAULT_WEIGHTS[weightKey] || 100) * 2 : 200;\n  }\n  if (move.promotion) {\n    const promoKey = PIECE_WEIGHTS[move.promotion.toUpperCase()];\n    score += promoKey ? (DEFAULT_WEIGHTS[promoKey] || 400) * 3 : 400;\n  }\n  if (move.enPassant) score += 120;\n  if (move.castle) score += 80;\n  return score;\n}\n\nfunction chooseBestMove(state, side, timeLimitMs, weights) {
+function movePriority(move) {
+  let score = 0;
+  if (move.capture) {
+    const target = move.capture.toUpperCase();
+    const key = PIECE_WEIGHTS[target];
+    score += key ? (DEFAULT_WEIGHTS[key] || 100) * 2 : 200;
+  }
+  if (move.promotion) {
+    const promoKey = PIECE_WEIGHTS[move.promotion.toUpperCase()];
+    score += promoKey ? (DEFAULT_WEIGHTS[promoKey] || 400) * 3 : 400;
+  }
+  if (move.enPassant) score += 120;
+  if (move.castle) score += 80;
+  return score;
+}
+
+function chooseBestMove(state, side, timeLimitMs, weights) {
   const moves = generateLegalMoves(state);
   if (!moves.length) return { move: null, score: 0, elapsed: 0 };
 
@@ -303,8 +319,13 @@ function movePriority(move) {\n  let score = 0;\n  if (move.capture) {\n    cons
 
   const start = performance.now();
   const deadline = timeLimitMs > 0 ? start + timeLimitMs : Infinity;
+  const MAX_MOVES = 24;
+  const ordered = moves
+    .map((move) => ({ move, priority: movePriority(move) }))
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, MAX_MOVES);
 
-  for (const move of moves) {
+  for (const { move } of ordered) {
     if (timeLimitMs > 0 && performance.now() > deadline) break;
     const nextState = cloneStateFast(state);
     makeMove(nextState, move, { skipResult: true });
