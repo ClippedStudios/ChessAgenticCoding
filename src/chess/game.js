@@ -1,4 +1,4 @@
-import { STANDARD_START_FEN, parseFEN, generateLegalMoves, makeMove, inCheck, toSAN } from './rules.js';
+import { STANDARD_START_FEN, parseFEN, generateLegalMoves, makeMove, toSAN, cloneState } from './rules.js';
 
 export function createGame({ minutes = 10, increment = 0 } = {}) {
   const start = parseFEN(STANDARD_START_FEN);
@@ -15,10 +15,11 @@ export function createGame({ minutes = 10, increment = 0 } = {}) {
     const legal = generateLegalMoves(state);
     const found = legal.find(m => m.from.r===move.from.r && m.from.c===move.from.c && m.to.r===move.to.r && m.to.c===move.to.c && (m.promotion||'') === (move.promotion||''));
     if (!found) return null;
+    const prev = cloneState(state);
     makeMove(state, found);
     state.lastMove = found;
-    found.san = toSAN({ ...state, lastMove: null }, found);
-    found.color = state.turn === 'w' ? 'b' : 'w';
+    found.san = toSAN(prev, found);
+    found.color = prev.turn;
     return found;
   }
 
