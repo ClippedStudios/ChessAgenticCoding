@@ -330,19 +330,6 @@ function computePawnStats(pawns, side, enemyPawnBoard) {
   return { files, isolated, doubled, passed, passedAdvance };
 }
 
-function countLegalMovesLimited(state, side, cap = 40) {
-  const originalTurn = state.turn;
-  state.turn = side;
-  let count = 0;
-  try {
-    const moves = generateLegalMoves(state);
-    count = moves.length;
-  } finally {
-    state.turn = originalTurn;
-  }
-  return Math.min(count, cap);
-}
-
 function countKnightsInCenter(knights) {
   let score = 0;
   for (const knight of knights) {
@@ -402,6 +389,78 @@ function kingRingPressure(analysis, attackerSide, kingPos) {
     pressure += attackers.count;
   }
   return pressure;
+}
+
+function pieceMobility(board, piece, side) {
+  const type = piece.type;
+  let mobility = 0;
+
+  if (type === 'N') {
+    for (const [dr, dc] of KNIGHT_OFFSETS) {
+      const r = piece.r + dr;
+      const c = piece.c + dc;
+      if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+      const target = pieceAt(board, r, c);
+      if (!target || sideOfPiece(target) !== side) mobility += 1;
+    }
+    return mobility;
+  }
+
+  if (type === 'B' || type === 'R' || type === 'Q') {
+    const dirs = type === 'B'
+      ? BISHOP_DIRS
+      : type === 'R'
+        ? ROOK_DIRS
+        : [...BISHOP_DIRS, ...ROOK_DIRS];
+    for (const [dr, dc] of dirs) {
+      let r = piece.r + dr;
+      let c = piece.c + dc;
+      while (r >= 0 && r <= 7 && c >= 0 && c <= 7) {
+        const target = pieceAt(board, r, c);
+        if (!target) mobility += 1;
+        else {
+          if (sideOfPiece(target) !== side) mobility += 1;
+          break;
+        }
+        r += dr;
+        c += dc;
+      }
+    }
+    return mobility;
+  }
+
+  if (type === 'P') {
+    const dir = side === 'w' ? -1 : 1;
+    const startRank = side === 'w' ? 6 : 1;
+    const forward = piece.r + dir;
+    if (forward >= 0 && forward <= 7) {
+      if (!pieceAt(board, forward, piece.c)) {
+        mobility += 1;
+        const doubleForward = piece.r === startRank ? piece.r + dir * 2 : null;
+        if (doubleForward !== null && !pieceAt(board, doubleForward, piece.c)) mobility += 1;
+      }
+      for (const dc of [-1, 1]) {
+        const c = piece.c + dc;
+        if (c < 0 || c > 7) continue;
+        const target = pieceAt(board, forward, c);
+        if (target && sideOfPiece(target) !== side) mobility += 1;
+      }
+    }
+    return mobility;
+  }
+
+  if (type === 'K') {
+    for (const [dr, dc] of KING_DIRS) {
+      const r = piece.r + dr;
+      const c = piece.c + dc;
+      if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+      const target = pieceAt(board, r, c);
+      if (!target || sideOfPiece(target) !== side) mobility += 1;
+    }
+    return mobility;
+  }
+
+  return mobility;
 }
 
 
