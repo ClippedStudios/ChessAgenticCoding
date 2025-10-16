@@ -115,16 +115,44 @@ export function createBoardUI(rootEl, game, { onUserMove } = {}) {
     const key = `${r},${c}`;
     if (legalTargets.has(key)) {
       const moves = generateLegalMoves(game.state);
-      const match = moves.find(
+      const candidates = moves.filter(
         (m) =>
           m.from.r === selected.r &&
           m.from.c === selected.c &&
           m.to.r === r &&
-          m.to.c === c &&
-          (!m.promotion || m.promotion === 'Q'),
+          m.to.c === c,
       );
-      if (match) {
-        onUserMove?.(match);
+      if (candidates.length) {
+        let chosen = null;
+        if (candidates.length === 1 || !candidates.some((m) => m.promotion)) {
+          chosen = candidates[0];
+        } else {
+          const available = candidates.map((m) => (m.promotion || 'Q').toUpperCase());
+          let choice = window.prompt(
+            `Promote to (${available.join('/')})`,
+            available.includes('Q') ? 'Q' : available[0],
+          );
+          if (!choice) {
+            selected = null;
+            legalTargets.clear();
+            render(game);
+            return;
+          }
+          choice = choice.trim().toUpperCase();
+          if (choice === 'KNIGHT') choice = 'N';
+          if (!available.includes(choice)) {
+            selected = null;
+            legalTargets.clear();
+            render(game);
+            return;
+          }
+          chosen = candidates.find(
+            (m) => (m.promotion || 'Q').toUpperCase() === choice,
+          );
+        }
+        if (chosen) {
+          onUserMove?.(chosen);
+        }
         selected = null;
         legalTargets.clear();
         return;
@@ -140,4 +168,3 @@ export function createBoardUI(rootEl, game, { onUserMove } = {}) {
 
   return { render, setPerspective, setPlayerSide };
 }
-
