@@ -151,6 +151,49 @@ function staticExchangeEvaluation(state, target, sideToMove, weights, initialVal
   return gain[0] ?? 0;
 }
 
+function generateCheckingMoves(state, attackerSide, limit = 12) {
+  const moves = generateLegalMoves(state);
+  const out = [];
+  for (const move of moves) {
+    const next = cloneStateFast(state);
+    makeMove(next, move, { skipResult: true });
+    const defender = next.turn;
+    if (inCheck(next, defender)) {
+      out.push(move);
+      if (out.length >= limit) break;
+    }
+  }
+  return out;
+}
+
+function forcedMateSearch(state, attackerSide, depth, maxBranch = 12) {
+  const defender = state.turn;
+  const defenderMoves = generateLegalMoves(state);
+  if (!defenderMoves.length) {
+    return inCheck(state, defender);
+  }
+  if (depth <= 0) return false;
+  if (defenderMoves.length > maxBranch) return false;
+
+  for (const reply of defenderMoves) {
+    const replyState = cloneStateFast(state);
+    makeMove(replyState, reply, { skipResult: true });
+    const checkingMoves = generateCheckingMoves(replyState, attackerSide, maxBranch);
+    if (!checkingMoves.length) return false;
+    let foundContinuation = false;
+    for (const checkMove of checkingMoves) {
+      const follow = cloneStateFast(replyState);
+      makeMove(follow, checkMove, { skipResult: true });
+      if (forcedMateSearch(follow, attackerSide, depth - 1, maxBranch)) {
+        foundContinuation = true;
+        break;
+      }
+    }
+    if (!foundContinuation) return false;
+  }
+  return true;
+}
+
 function moveToNotation(move) {
   if (!move) return "";
   const fromFile = String.fromCharCode(97 + move.from.c);
@@ -452,7 +495,11 @@ function chooseBestMove(state, side, timeLimitMs, weights) {
     if (opponentInCheck && opponentMoves.length === 0) {
       adjustedGain += 100000;
     } else if (opponentInCheck) {
-      adjustedGain += weights.checkBonus || 0;
+      if (forcedMateSearch(nextState, side, 2)) {
+        adjustedGain += 8000;
+      } else {
+        adjustedGain += weights.checkBonus || 0;
+      }
     }
     const friendlySide = nextState.turn === 'w' ? 'b' : 'w';
     for (let r = 0; r < 8; r += 1) {
